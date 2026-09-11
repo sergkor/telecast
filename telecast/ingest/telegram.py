@@ -56,18 +56,20 @@ class Ingestor:
                 groups.setdefault(msg.grouped_id, []).append(msg)
             else:
                 singles.append(msg)
-        for msgs in list(groups.values()) + [[m] for m in singles]:
+        message_groups = list(groups.values()) + [[m] for m in singles]
+        message_groups.sort(key=lambda msgs: msgs[0].id)
+        for msgs in message_groups:
             await self._handle(entity, msgs)
 
     async def _handle(self, chat, msgs) -> None:
         channel = f"@{chat.username}" if getattr(chat, "username", None) else str(chat.id)
         try:
             post = await self._messages_to_post(channel, msgs)
+            with self.session_factory() as session:
+                article = ingest_post(post, session)
         except Exception:
             logger.exception(f"ingest failed for {channel}/{msgs[0].id}")
             return
-        with self.session_factory() as session:
-            article = ingest_post(post, session)
         if article:
             logger.info(f"ingested article {article.id} from {channel}/{post.message_id}")
 
@@ -80,7 +82,7 @@ class Ingestor:
                 continue
             dest = self.settings.media_dir / f"{channel.lstrip('@')}_{m.id}.mp4"
             await self.client.download_media(m, file=str(dest))
-            thumb = make_thumbnail(dest, self.settings.media_dir)
+            thumb = await asyncio.to_thread(make_thumbnail, dest, self.settings.media_dir)
             videos.append(IncomingVideo(
                 file_path=str(dest),
                 mime_type=(m.file.mime_type if m.file else None) or "video/mp4",
