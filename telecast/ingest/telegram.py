@@ -67,11 +67,12 @@ class Ingestor:
             post = await self._messages_to_post(channel, msgs)
             with self.session_factory() as session:
                 article = ingest_post(post, session)
+                article_id = article.id if article else None
         except Exception:
             logger.exception(f"ingest failed for {channel}/{msgs[0].id}")
             return
-        if article:
-            logger.info(f"ingested article {article.id} from {channel}/{post.message_id}")
+        if article_id is not None:
+            logger.info(f"ingested article {article_id} from {channel}/{post.message_id}")
 
     async def _messages_to_post(self, channel: str, msgs) -> IncomingPost:
         first = msgs[0]
