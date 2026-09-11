@@ -46,3 +46,29 @@ async def test_validate_warns_on_oversize(tmp_path):
     media = [MediaFile(article_id=1, file_path="v.mp4", size_bytes=s.media_max_bytes + 1)]
     warnings = pub.validate(make_article(), media, s)
     assert any("size" in w.lower() for w in warnings)
+
+
+async def test_publish_album_calls_sendMediaGroup_with_caption_on_first(tmp_path):
+    """Album path: multiple videos, sendMediaGroup, attach:// keys, caption on first item only."""
+    v1 = tmp_path / "v1.mp4"
+    v2 = tmp_path / "v2.mp4"
+    v1.write_bytes(b"fake1")
+    v2.write_bytes(b"fake2")
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["url"] = str(request.url)
+        captured["data"] = request.content.decode() if isinstance(request.content, bytes) else str(request.content)
+        return httpx.Response(200, json={"ok": True, "result": [{"message_id": 99}]})
+
+    pub = TelegramPublisher(transport=httpx.MockTransport(handler))
+    art = make_article()
+    media = [
+        MediaFile(article_id=1, file_path=str(v1), size_bytes=5),
+        MediaFile(article_id=1, file_path=str(v2), size_bytes=5),
+    ]
+    url = await pub.publish(art, media, pub.adapt(art), make_settings(tmp_path))
+    assert "sendMediaGroup" in captured["url"]
+    assert "attach://video0" in captured["data"]
+    assert "attach://video1" in captured["data"]
+    assert url == "https://t.me/dest/99"

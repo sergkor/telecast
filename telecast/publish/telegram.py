@@ -52,14 +52,14 @@ class TelegramPublisher:
             else:
                 input_media = []
                 files = {}
-                for i, m in enumerate(media):
-                    key = f"video{i}"
-                    item = {"type": "video", "media": f"attach://{key}"}
-                    if i == 0:
-                        item["caption"] = adapted.body
-                    input_media.append(item)
-                    files[key] = (Path(m.file_path).name, Path(m.file_path).open("rb"), m.mime_type)
                 try:
+                    for i, m in enumerate(media):
+                        key = f"video{i}"
+                        item = {"type": "video", "media": f"attach://{key}"}
+                        if i == 0:
+                            item["caption"] = adapted.body
+                        input_media.append(item)
+                        files[key] = (Path(m.file_path).name, Path(m.file_path).open("rb"), m.mime_type)
                     resp = await client.post(
                         f"{api}/sendMediaGroup",
                         data={"chat_id": settings.dest_channel, "media": json.dumps(input_media)},
