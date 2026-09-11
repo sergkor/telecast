@@ -1,0 +1,42 @@
+from pathlib import Path
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", env_prefix="TELECAST_", extra="ignore")
+
+    telegram_api_id: int = 0
+    telegram_api_hash: str = ""
+    source_channels: str = ""
+    bot_token: str = ""
+    dest_channel: str = ""
+    gemini_api_key: str = ""
+    web_password: str = "change-me"
+    secret_key: str = "dev-secret-change-me"
+    data_dir: Path = Path("data")
+    media_max_bytes: int = 512 * 1024 * 1024
+    media_max_seconds: int = 3600
+    youtube_privacy: str = "public"
+    enhance_prompt_path: Path = Path("prompts/enhance.md")
+    stale_claim_minutes: int = 15
+
+    @property
+    def source_channel_list(self) -> list[str]:
+        return [c.strip() for c in self.source_channels.split(",") if c.strip()]
+
+    @property
+    def media_dir(self) -> Path:
+        return self.data_dir / "media"
+
+    @property
+    def db_path(self) -> Path:
+        return self.data_dir / "articles.db"
+
+    @property
+    def youtube_token_path(self) -> Path:
+        return self.data_dir / "youtube_token.json"
+
+    @property
+    def telethon_session_path(self) -> Path:
+        return self.data_dir / "telethon.session"
