@@ -35,3 +35,23 @@ def test_cursor_only_moves_forward(session):
     set_cursor(session, "@n", 10)
     set_cursor(session, "@n", 3)
     assert get_cursor(session, "@n") == 10
+
+
+def test_ingest_dedupes_grouped_post_by_grouped_id(session):
+    first = IncomingPost(channel="@n", message_id=100, grouped_id=555,
+                         text="album", url="https://t.me/n/100",
+                         videos=[IncomingVideo(file_path="data/media/100_0.mp4",
+                                               mime_type="video/mp4", duration_s=10.0,
+                                               width=720, height=1280, size_bytes=1000,
+                                               tg_file_unique_id="uid100_0")])
+    second = IncomingPost(channel="@n", message_id=101, grouped_id=555,
+                          text="album", url="https://t.me/n/101",
+                          videos=[IncomingVideo(file_path="data/media/101_0.mp4",
+                                                mime_type="video/mp4", duration_s=10.0,
+                                                width=720, height=1280, size_bytes=1000,
+                                                tg_file_unique_id="uid101_0")])
+    a = ingest_post(first, session)
+    assert a is not None
+    assert ingest_post(second, session) is None
+    articles = session.exec(select(Article).where(Article.grouped_id == 555)).all()
+    assert len(articles) == 1

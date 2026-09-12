@@ -4,7 +4,7 @@ from loguru import logger
 from telethon import TelegramClient, events
 
 from telecast.config import Settings
-from telecast.ingest.core import IncomingPost, IncomingVideo, get_cursor, ingest_post
+from telecast.ingest.core import IncomingPost, IncomingVideo, get_cursor, ingest_post, set_cursor
 from telecast.ingest.thumbs import make_thumbnail
 
 
@@ -23,32 +23,43 @@ class Ingestor:
         )
 
     async def start(self, stop_event: asyncio.Event) -> None:
-        self.settings.media_dir.mkdir(parents=True, exist_ok=True)
-        channels = self.settings.source_channel_list
+        try:
+            self.settings.media_dir.mkdir(parents=True, exist_ok=True)
+            channels = self.settings.source_channel_list
 
-        @self.client.on(events.Album(chats=channels))
-        async def on_album(event):
-            await self._handle(event.chat, event.messages)
+            @self.client.on(events.Album(chats=channels))
+            async def on_album(event):
+                await self._handle(event.chat, event.messages)
 
-        @self.client.on(events.NewMessage(chats=channels))
-        async def on_message(event):
-            if event.message.grouped_id is not None:
-                return  # handled by the Album event
-            await self._handle(event.chat, [event.message])
+            @self.client.on(events.NewMessage(chats=channels))
+            async def on_message(event):
+                if event.message.grouped_id is not None:
+                    return  # handled by the Album event
+                await self._handle(event.chat, [event.message])
 
-        await self.client.start()
-        for channel in channels:
-            await self._backfill(channel)
-        logger.info(f"ingestor listening on {channels}")
-        stopper = asyncio.create_task(stop_event.wait())
-        runner = asyncio.create_task(self.client.run_until_disconnected())
-        await asyncio.wait({stopper, runner}, return_when=asyncio.FIRST_COMPLETED)
-        await self.client.disconnect()
+            await self.client.start()
+            for channel in channels:
+                await self._backfill(channel)
+            logger.info(f"ingestor listening on {channels}")
+            stopper = asyncio.create_task(stop_event.wait())
+            runner = asyncio.create_task(self.client.run_until_disconnected())
+            await asyncio.wait({stopper, runner}, return_when=asyncio.FIRST_COMPLETED)
+            await self.client.disconnect()
+        except Exception:
+            logger.exception("ingestor failed to start")
+            return
 
     async def _backfill(self, channel: str) -> None:
         with self.session_factory() as session:
             min_id = get_cursor(session, channel)
         entity = await self.client.get_entity(channel)
+        if min_id == 0:
+            msgs = await self.client.get_messages(entity, limit=1)
+            latest_id = msgs[0].id if msgs else 0
+            with self.session_factory() as session:
+                set_cursor(session, channel, latest_id)
+            logger.info(f"bootstrapped cursor for {channel} at {latest_id}")
+            return
         groups: dict[int, list] = {}
         singles = []
         async for msg in self.client.iter_messages(entity, min_id=min_id, reverse=True):
@@ -59,20 +70,24 @@ class Ingestor:
         message_groups = list(groups.values()) + [[m] for m in singles]
         message_groups.sort(key=lambda msgs: msgs[0].id)
         for msgs in message_groups:
-            await self._handle(entity, msgs)
+            ok = await self._handle(entity, msgs)
+            if not ok:
+                break
 
-    async def _handle(self, chat, msgs) -> None:
+    async def _handle(self, chat, msgs) -> bool:
         channel = f"@{chat.username}" if getattr(chat, "username", None) else str(chat.id)
         try:
             post = await self._messages_to_post(channel, msgs)
             with self.session_factory() as session:
                 article = ingest_post(post, session)
                 article_id = article.id if article else None
+                set_cursor(session, channel, max(m.id for m in msgs))
         except Exception:
             logger.exception(f"ingest failed for {channel}/{msgs[0].id}")
-            return
+            return False
         if article_id is not None:
             logger.info(f"ingested article {article_id} from {channel}/{post.message_id}")
+        return True
 
     async def _messages_to_post(self, channel: str, msgs) -> IncomingPost:
         first = msgs[0]

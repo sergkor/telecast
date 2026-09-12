@@ -14,6 +14,14 @@ from telecast.publish.youtube import YouTubePublisher
 from telecast.web.app import create_app
 
 
+def _log_task_exception(task: asyncio.Task) -> None:
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc is not None:
+        logger.opt(exception=exc).error(f"background task failed: {task.get_name()}")
+
+
 def build():
     settings = Settings()
     settings.data_dir.mkdir(parents=True, exist_ok=True)
@@ -39,6 +47,8 @@ def build():
             tasks.append(asyncio.create_task(Ingestor(settings, session_factory).start(stop_event)))
         else:
             logger.warning("TELECAST_TELEGRAM_API_ID not set — ingestor disabled")
+        for t in tasks:
+            t.add_done_callback(_log_task_exception)
         yield
         stop_event.set()
         for t in tasks:

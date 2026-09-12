@@ -103,10 +103,13 @@ async def reaper_loop(session_factory, settings: Settings, stop_event: asyncio.E
     from telecast.states import reap_stale
 
     while not stop_event.is_set():
-        with session_factory() as session:
-            n = reap_stale(session, settings.stale_claim_minutes)
-            if n:
-                logger.info(f"reaper reset {n} stale article(s)")
+        try:
+            with session_factory() as session:
+                n = reap_stale(session, settings.stale_claim_minutes)
+                if n:
+                    logger.info(f"reaper reset {n} stale article(s)")
+        except Exception:
+            logger.exception("reaper loop error")
         for _ in range(60):  # 60 * 5s = 300s
             if stop_event.is_set():
                 return
