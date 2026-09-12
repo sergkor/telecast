@@ -1,6 +1,7 @@
 import pytest
 from fastapi.testclient import TestClient
 
+from telecast import models  # noqa: F401
 from telecast.config import Settings
 from telecast.web.app import create_app
 
