@@ -55,48 +55,56 @@ def targets_partial(request: Request, article_id: int):
 @action.post("/articles/{article_id}/save")
 def save(request: Request, article_id: int, title: str = Form(""), final_text: str = Form("")):
     session, article = _load(request, article_id)
-    article.title = title
-    article.final_text = final_text
-    if final_text != (article.enhanced_text or ""):
-        article.final_text_edited = True
-    article.updated_at = utcnow()
-    session.commit()
-    session.close()
+    try:
+        article.title = title
+        article.final_text = final_text
+        if final_text != (article.enhanced_text or ""):
+            article.final_text_edited = True
+        article.updated_at = utcnow()
+        session.commit()
+    finally:
+        session.close()
     return RedirectResponse(f"/articles/{article_id}", status_code=303)
 
 
 @action.post("/articles/{article_id}/reenhance")
 def reenhance(request: Request, article_id: int):
     session, article = _load(request, article_id)
-    if article.state in (ArticleState.PENDING_REVIEW, ArticleState.FAILED_ENHANCE):
-        article.state = ArticleState.TRANSLATED
-        article.updated_at = utcnow()
-        session.commit()
-    session.close()
+    try:
+        if article.state in (ArticleState.PENDING_REVIEW, ArticleState.FAILED_ENHANCE):
+            article.state = ArticleState.TRANSLATED
+            article.updated_at = utcnow()
+            session.commit()
+    finally:
+        session.close()
     return RedirectResponse(f"/articles/{article_id}", status_code=303)
 
 
 @action.post("/articles/{article_id}/retry")
 def retry(request: Request, article_id: int):
     session, article = _load(request, article_id)
-    if article.state == ArticleState.FAILED_TRANSLATE:
-        article.state = ArticleState.INGESTED
-    elif article.state == ArticleState.FAILED_ENHANCE:
-        article.state = ArticleState.TRANSLATED
-    article.error = None
-    article.updated_at = utcnow()
-    session.commit()
-    session.close()
+    try:
+        if article.state == ArticleState.FAILED_TRANSLATE:
+            article.state = ArticleState.INGESTED
+        elif article.state == ArticleState.FAILED_ENHANCE:
+            article.state = ArticleState.TRANSLATED
+        article.error = None
+        article.updated_at = utcnow()
+        session.commit()
+    finally:
+        session.close()
     return RedirectResponse(f"/articles/{article_id}", status_code=303)
 
 
 @action.post("/articles/{article_id}/discard")
 def discard(request: Request, article_id: int):
     session, article = _load(request, article_id)
-    article.state = ArticleState.DISCARDED
-    article.updated_at = utcnow()
-    session.commit()
-    session.close()
+    try:
+        article.state = ArticleState.DISCARDED
+        article.updated_at = utcnow()
+        session.commit()
+    finally:
+        session.close()
     return RedirectResponse("/", status_code=303)
 
 
@@ -112,34 +120,40 @@ def _target(request, target_id: int):
 @action.post("/targets/{target_id}/approve")
 def approve(request: Request, target_id: int):
     session, target = _target(request, target_id)
-    if target.status in (TargetStatus.PENDING, TargetStatus.FAILED):
-        target.status = TargetStatus.APPROVED
-        session.commit()
-    aid = target.article_id
-    session.close()
+    try:
+        if target.status in (TargetStatus.PENDING, TargetStatus.FAILED):
+            target.status = TargetStatus.APPROVED
+            session.commit()
+        aid = target.article_id
+    finally:
+        session.close()
     return RedirectResponse(f"/articles/{aid}", status_code=303)
 
 
 @action.post("/targets/{target_id}/skip")
 def skip(request: Request, target_id: int):
     session, target = _target(request, target_id)
-    if target.status in (TargetStatus.PENDING, TargetStatus.FAILED):
-        target.status = TargetStatus.SKIPPED
-        session.commit()
-    aid = target.article_id
-    session.close()
+    try:
+        if target.status in (TargetStatus.PENDING, TargetStatus.FAILED):
+            target.status = TargetStatus.SKIPPED
+            session.commit()
+        aid = target.article_id
+    finally:
+        session.close()
     return RedirectResponse(f"/articles/{aid}", status_code=303)
 
 
 @action.post("/targets/{target_id}/retry")
 def retry_target(request: Request, target_id: int):
     session, target = _target(request, target_id)
-    if target.status == TargetStatus.FAILED:
-        target.status = TargetStatus.APPROVED
-        target.error = None
-        session.commit()
-    aid = target.article_id
-    session.close()
+    try:
+        if target.status == TargetStatus.FAILED:
+            target.status = TargetStatus.APPROVED
+            target.error = None
+            session.commit()
+        aid = target.article_id
+    finally:
+        session.close()
     return RedirectResponse(f"/articles/{aid}", status_code=303)
 
 
