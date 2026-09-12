@@ -1,0 +1,21 @@
+<div id="targets" {% if publishing %}hx-get="/articles/{{ article.id }}/targets" hx-trigger="every 3s" hx-swap="outerHTML"{% endif %}>
+  {% for t in targets %}
+  <div class="card">
+    <strong>{{ t.platform }}</strong>
+    <span class="chip {{ t.status.value }}">{{ t.status.value }}</span>
+    {% if t.external_url %}<a href="{{ t.external_url }}" target="_blank">{{ t.external_url }}</a>{% endif %}
+    {% if t.error %}<p class="error">{{ t.error }}</p>{% endif %}
+    {% for w in warnings.get(t.platform, []) %}<p class="error">⚠ {{ w }}</p>{% endfor %}
+    <form method="post" style="display:inline">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      {% if t.status.value in ("PENDING", "FAILED") %}
+        <button class="primary" formaction="/targets/{{ t.id }}/approve">Approve &amp; publish</button>
+        <button formaction="/targets/{{ t.id }}/skip">Skip</button>
+      {% endif %}
+      {% if t.status.value == "FAILED" %}
+        <button formaction="/targets/{{ t.id }}/retry">Retry</button>
+      {% endif %}
+    </form>
+  </div>
+  {% endfor %}
+</div>

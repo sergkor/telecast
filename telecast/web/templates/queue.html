@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+  {% for t in tabs %}
+    <a href="/?tab={{ t }}" {% if t == tab %}style="font-weight:bold"{% endif %}>{{ t }}</a>{% if not loop.last %} · {% endif %}
+  {% endfor %}
+</div>
+<div class="card">
+  <table>
+    <tr><th></th><th>Title</th><th>Source</th><th>State</th><th>Targets</th><th>Created</th></tr>
+    {% for row in rows %}
+    <tr>
+      <td>
+        {% set thumbs = row.media | selectattr("thumb_path") | list %}
+        {% if thumbs %}<img src="/media/{{ thumbs[0].thumb_path.split('/')[-1] }}" width="72">{% endif %}
+      </td>
+      <td><a href="/articles/{{ row.article.id }}">{{ row.article.title or "(untitled)" }}</a></td>
+      <td>{{ row.article.source_channel }}</td>
+      <td><span class="chip">{{ row.article.state.value }}</span></td>
+      <td>
+        {% for t in row.targets %}<span class="chip {{ t.status.value }}">{{ t.platform }}: {{ t.status.value }}</span>{% endfor %}
+      </td>
+      <td>{{ row.article.created_at.strftime("%m-%d %H:%M") }}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="6">Nothing here.</td></tr>
+    {% endfor %}
+  </table>
+</div>
+{% endblock %}

@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}{{ article.title or "Article" }} — Telecast{% endblock %}
+{% block content %}
+<div class="cols">
+  <div>
+    {% for m in media %}
+    <div class="card"><video controls src="/media/{{ m.file_path.split('/')[-1] }}"></video></div>
+    {% endfor %}
+    <div class="card"><h3>Original</h3><p style="white-space:pre-wrap">{{ article.original_text }}</p>
+      <p><a href="{{ article.source_url }}" target="_blank">source ↗</a></p></div>
+    <div class="card"><h3>Translated ({{ article.detected_language or "?" }})</h3>
+      <p style="white-space:pre-wrap">{{ article.translated_text or "—" }}</p></div>
+  </div>
+  <div>
+    <div class="card">
+      <h3>Final text <span class="chip">{{ article.state.value }}</span></h3>
+      {% if article.error %}<p class="error">{{ article.error }}</p>
+        <form method="post" action="/articles/{{ article.id }}/retry">
+          <input type="hidden" name="csrf" value="{{ csrf }}"><button>Retry stage</button></form>
+      {% endif %}
+      <form method="post" action="/articles/{{ article.id }}/save">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <p><input type="text" name="title" value="{{ article.title or '' }}" placeholder="Title"></p>
+        <p><textarea name="final_text">{{ article.final_text or "" }}</textarea></p>
+        <button class="primary">Save</button>
+      </form>
+      <form method="post" action="/articles/{{ article.id }}/reenhance" style="display:inline">
+        <input type="hidden" name="csrf" value="{{ csrf }}"><button>Re-enhance</button></form>
+      <form method="post" action="/articles/{{ article.id }}/discard" style="display:inline">
+        <input type="hidden" name="csrf" value="{{ csrf }}"><button>Discard</button></form>
+      <details><summary>Enhanced (AI) version</summary>
+        <p style="white-space:pre-wrap">{{ article.enhanced_text or "—" }}</p></details>
+      <p>{{ article.hashtags }}</p>
+    </div>
+    {% include "_targets.html" %}
+  </div>
+</div>
+{% endblock %}
