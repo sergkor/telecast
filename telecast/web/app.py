@@ -57,4 +57,7 @@ def create_app(settings, session_factory, llm=None) -> FastAPI:
     from telecast.web.routes_article import router as article_router
     app.include_router(article_router)
 
+    from telecast.web.routes_settings import router as settings_router
+    app.include_router(settings_router)
+
     return app

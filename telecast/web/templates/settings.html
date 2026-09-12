@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card"><h3>Source channels</h3>
+  <p>{% for c in source_channels %}{{ c }}{% if not loop.last %}, {% endif %}{% endfor %}</p>
+  <h3>Destination</h3><p>{{ dest_channel }}</p></div>
+<div class="card"><h3>Credential health</h3>
+  <table>{% for k, v in health.items() %}<tr><td>{{ k }}</td><td>{{ v }}</td></tr>{% endfor %}</table></div>
+<div class="card"><h3>Enhancement prompt</h3><pre style="white-space:pre-wrap">{{ prompt }}</pre></div>
+{% endblock %}
