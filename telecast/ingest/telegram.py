@@ -1,7 +1,7 @@
 import asyncio
 
 from loguru import logger
-from telethon import TelegramClient, events
+from telethon import TelegramClient, events, utils
 
 from telecast.config import Settings
 from telecast.ingest.core import IncomingPost, IncomingVideo, get_cursor, ingest_post, set_cursor
@@ -49,15 +49,16 @@ class Ingestor:
             logger.exception("ingestor failed to start")
             return
 
-    async def _backfill(self, channel: str) -> None:
-        with self.session_factory() as session:
-            min_id = get_cursor(session, channel)
+    async def _backfill(self, channel: str | int) -> None:
         entity = await self.client.get_entity(channel)
+        key = self._channel_key(entity)
+        with self.session_factory() as session:
+            min_id = get_cursor(session, key)
         if min_id == 0:
             msgs = await self.client.get_messages(entity, limit=1)
             latest_id = msgs[0].id if msgs else 0
             with self.session_factory() as session:
-                set_cursor(session, channel, latest_id)
+                set_cursor(session, key, latest_id)
             logger.info(f"bootstrapped cursor for {channel} at {latest_id}")
             return
         groups: dict[int, list] = {}
@@ -74,8 +75,16 @@ class Ingestor:
             if not ok:
                 break
 
+    @staticmethod
+    def _channel_key(chat) -> str:
+        # "@username" for public channels; "-100<id>" peer-id form otherwise,
+        # so cursor keys match however the channel was configured.
+        if getattr(chat, "username", None):
+            return f"@{chat.username}"
+        return str(utils.get_peer_id(chat))
+
     async def _handle(self, chat, msgs) -> bool:
-        channel = f"@{chat.username}" if getattr(chat, "username", None) else str(chat.id)
+        channel = self._channel_key(chat)
         try:
             post = await self._messages_to_post(channel, msgs)
             with self.session_factory() as session:
@@ -109,9 +118,12 @@ class Ingestor:
                 tg_file_unique_id=str(m.file.id) if m.file else "",
                 thumb_path=str(thumb) if thumb else None,
             ))
-        username = channel.lstrip("@")
+        if channel.startswith("@"):
+            url = f"https://t.me/{channel[1:]}/{first.id}"
+        else:
+            url = f"https://t.me/c/{channel.removeprefix('-100')}/{first.id}"
         return IncomingPost(
             channel=channel, message_id=first.id,
             grouped_id=first.grouped_id, text=text,
-            url=f"https://t.me/{username}/{first.id}", videos=videos,
+            url=url, videos=videos,
         )

@@ -13,3 +13,11 @@ def test_settings_defaults_and_channel_list(monkeypatch):
     assert s.db_path == Path("data/articles.db")
     assert s.media_dir == Path("data/media")
     assert s.youtube_token_path == Path("data/youtube_token.json")
+
+
+def test_channel_list_converts_numeric_ids_to_int(monkeypatch):
+    monkeypatch.setenv(
+        "TELECAST_SOURCE_CHANNELS", "@newsA, -1001687211358, #-1002222222222"
+    )
+    s = Settings(_env_file=None)
+    assert s.source_channel_list == ["@newsA", -1001687211358, -1002222222222]

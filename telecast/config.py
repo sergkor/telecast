@@ -22,8 +22,16 @@ class Settings(BaseSettings):
     stale_claim_minutes: int = 15
 
     @property
-    def source_channel_list(self) -> list[str]:
-        return [c.strip() for c in self.source_channels.split(",") if c.strip()]
+    def source_channel_list(self) -> list[str | int]:
+        # Telethon resolves numeric channel ids only when passed as int;
+        # a "#" prefix (as copied from some Telegram clients) is noise.
+        items: list[str | int] = []
+        for raw in self.source_channels.split(","):
+            c = raw.strip().lstrip("#")
+            if not c:
+                continue
+            items.append(int(c) if c.lstrip("-").isdigit() else c)
+        return items
 
     @property
     def media_dir(self) -> Path:
