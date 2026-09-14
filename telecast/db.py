@@ -19,8 +19,21 @@ def make_engine(db_path: Path | str):
     return engine
 
 
+# columns added after the initial release; create_all won't alter existing tables
+_ARTICLE_MIGRATIONS = {
+    "approved_at": "TIMESTAMP",
+    "scheduled_at": "TIMESTAMP",
+}
+
+
 def init_db(engine) -> None:
     SQLModel.metadata.create_all(engine)
+    with engine.connect() as conn:
+        cols = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(article)")}
+        for name, sql_type in _ARTICLE_MIGRATIONS.items():
+            if name not in cols:
+                conn.exec_driver_sql(f"ALTER TABLE article ADD COLUMN {name} {sql_type}")
+        conn.commit()
 
 
 def make_session_factory(engine):

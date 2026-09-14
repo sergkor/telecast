@@ -1,4 +1,14 @@
 <div id="targets" {% if publishing %}hx-get="/articles/{{ article.id }}/targets" hx-trigger="every 3s" hx-swap="outerHTML"{% endif %}>
+  {% set queued = targets | selectattr("status.value", "equalto", "APPROVED") | list %}
+  {% if article.scheduled_at and queued %}
+  <div class="card">
+    ⏱ Scheduled for {{ article.scheduled_at.strftime("%Y-%m-%d %H:%M") }} UTC
+    <form method="post" action="/articles/{{ article.id }}/publish_now" style="display:inline">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <button class="primary">Publish now</button>
+    </form>
+  </div>
+  {% endif %}
   {% for t in targets %}
   <div class="card">
     <strong>{{ t.platform }}</strong>
@@ -9,7 +19,7 @@
     <form method="post" style="display:inline">
       <input type="hidden" name="csrf" value="{{ csrf }}">
       {% if t.status.value in ("PENDING", "FAILED") %}
-        <button class="primary" formaction="/targets/{{ t.id }}/approve">Approve &amp; publish</button>
+        <button class="primary" formaction="/targets/{{ t.id }}/approve">Approve</button>
         <button formaction="/targets/{{ t.id }}/skip">Skip</button>
       {% endif %}
       {% if t.status.value == "FAILED" %}

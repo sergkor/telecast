@@ -12,7 +12,9 @@ async def publish_one(session_factory, settings: Settings) -> bool:
     with session_factory() as session:
         target = session.exec(
             select(PublishTarget)
+            .join(Article, Article.id == PublishTarget.article_id)
             .where(PublishTarget.status == TargetStatus.APPROVED)
+            .where((Article.scheduled_at == None) | (Article.scheduled_at <= utcnow()))  # noqa: E711
             .order_by(PublishTarget.id)
         ).first()
         if target is None:

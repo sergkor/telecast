@@ -12,6 +12,8 @@ class Settings(BaseSettings):
     bot_token: str = ""
     dest_channel: str = ""
     gemini_api_key: str = ""
+    translate_model: str = "gemini-flash-latest"
+    enhance_model: str = "gemini-flash-latest"
     web_password: str = "change-me"
     secret_key: str = "dev-secret-change-me"
     data_dir: Path = Path("data")
@@ -20,6 +22,7 @@ class Settings(BaseSettings):
     youtube_privacy: str = "public"
     enhance_prompt_path: Path = Path("prompts/enhance.md")
     stale_claim_minutes: int = 15
+    recent_posts: int = 5
 
     @property
     def source_channel_list(self) -> list[str | int]:

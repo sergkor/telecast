@@ -28,7 +28,8 @@ async def advance_one(session_factory, llm, settings: Settings) -> bool:
                 return True
             claim(session, article, ArticleState.TRANSLATING)
             try:
-                tr = await translate(article.original_text, llm)
+                tr = await translate(article.original_text, llm,
+                                     model=settings.translate_model)
             except GeminiQuotaError:
                 article.state = ArticleState.INGESTED
                 article.claimed_at = None
@@ -47,7 +48,8 @@ async def advance_one(session_factory, llm, settings: Settings) -> bool:
         if article.state == ArticleState.TRANSLATED:
             claim(session, article, ArticleState.ENHANCING)
             try:
-                enh = await enhance(article.translated_text, settings.enhance_prompt_path, llm)
+                enh = await enhance(article.translated_text, settings.enhance_prompt_path, llm,
+                                    model=settings.enhance_model)
             except GeminiQuotaError:
                 article.state = ArticleState.TRANSLATED
                 article.claimed_at = None

@@ -74,3 +74,38 @@ def test_discard(client, article, session_factory):
 def test_post_without_csrf_rejected(client, article):
     r = client.post(f"/articles/{article}/discard", data={})
     assert r.status_code == 403
+
+
+def test_approve_sets_approved_at_and_schedules(client, article, session_factory):
+    client.post("/targets/1/approve", data={"csrf": _csrf(client)})
+    with session_factory() as s:
+        a = s.get(Article, article)
+        assert a.approved_at is not None
+        assert a.scheduled_at is not None
+
+
+def test_new_approval_resets_schedule_oldest_goes_now(client, article, session_factory):
+    client.post("/targets/1/approve", data={"csrf": _csrf(client)})
+    with session_factory() as s:
+        a2 = Article(source_channel="@n", source_message_id=2,
+                     state=ArticleState.PENDING_REVIEW, title="T2")
+        s.add(a2)
+        s.commit()
+        s.refresh(a2)
+        s.add(PublishTarget(article_id=a2.id, platform="telegram"))
+        s.commit()
+        a2_id = a2.id
+    client.post("/targets/2/approve", data={"csrf": _csrf(client)})
+    with session_factory() as s:
+        a1 = s.get(Article, article)
+        a2 = s.get(Article, a2_id)
+        assert a1.scheduled_at is not None and a2.scheduled_at is not None
+        # oldest approval gets the immediate slot; newer one is 12h later
+        assert a1.scheduled_at < a2.scheduled_at
+
+
+def test_publish_now_clears_schedule(client, article, session_factory):
+    client.post("/targets/1/approve", data={"csrf": _csrf(client)})
+    client.post(f"/articles/{article}/publish_now", data={"csrf": _csrf(client)})
+    with session_factory() as s:
+        assert s.get(Article, article).scheduled_at is None

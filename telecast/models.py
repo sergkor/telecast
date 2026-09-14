@@ -56,6 +56,8 @@ class Article(SQLModel, table=True):
     state: ArticleState = Field(default=ArticleState.INGESTED, index=True)
     error: str | None = None
     claimed_at: datetime | None = None
+    approved_at: datetime | None = None
+    scheduled_at: datetime | None = None
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)
 

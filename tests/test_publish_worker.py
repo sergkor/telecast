@@ -1,5 +1,7 @@
+from datetime import timedelta
+
 from telecast.config import Settings
-from telecast.models import Article, ArticleState, MediaFile, PublishTarget, TargetStatus
+from telecast.models import Article, ArticleState, MediaFile, PublishTarget, TargetStatus, utcnow
 from telecast.publish import base as registry
 from telecast.publish.base import Adapted
 from telecast.publish.worker import publish_one
@@ -69,3 +71,30 @@ async def test_publish_failure_marks_failed_keeps_article(session_factory, tmp_p
 async def test_no_approved_targets_returns_false(session_factory, tmp_path):
     settings = Settings(_env_file=None, data_dir=tmp_path)
     assert not await publish_one(session_factory, settings)
+
+
+async def test_future_schedule_not_picked_up(session_factory, tmp_path):
+    settings = Settings(_env_file=None, data_dir=tmp_path)
+    with session_factory() as s:
+        aid = _setup(s, [GoodPublisher()])
+        a = s.get(Article, aid)
+        a.scheduled_at = utcnow() + timedelta(hours=1)
+        s.commit()
+    assert not await publish_one(session_factory, settings)
+    with session_factory() as s:
+        assert s.get(PublishTarget, 1).status == TargetStatus.APPROVED
+    registry.clear()
+
+
+async def test_due_schedule_is_published(session_factory, tmp_path):
+    settings = Settings(_env_file=None, data_dir=tmp_path)
+    with session_factory() as s:
+        aid = _setup(s, [GoodPublisher()])
+        a = s.get(Article, aid)
+        a.scheduled_at = utcnow() - timedelta(minutes=1)
+        s.commit()
+    assert await publish_one(session_factory, settings)
+    with session_factory() as s:
+        assert s.get(PublishTarget, 1).status == TargetStatus.PUBLISHED
+        assert s.get(Article, aid).state == ArticleState.PUBLISHED
+    registry.clear()

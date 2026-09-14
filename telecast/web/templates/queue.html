@@ -19,6 +19,9 @@
       <td><span class="chip">{{ row.article.state.value }}</span></td>
       <td>
         {% for t in row.targets %}<span class="chip {{ t.status.value }}">{{ t.platform }}: {{ t.status.value }}</span>{% endfor %}
+        {% if row.article.scheduled_at and row.targets | selectattr("status.value", "equalto", "APPROVED") | list %}
+          <span class="chip">⏱ {{ row.article.scheduled_at.strftime("%m-%d %H:%M") }}</span>
+        {% endif %}
       </td>
       <td>{{ row.article.created_at.strftime("%m-%d %H:%M") }}</td>
     </tr>

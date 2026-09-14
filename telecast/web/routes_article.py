@@ -4,6 +4,7 @@ from sqlmodel import select
 
 from telecast.models import Article, ArticleState, MediaFile, PublishTarget, TargetStatus, utcnow
 from telecast.publish import base as registry
+from telecast.publish.schedule import reschedule
 from telecast.web import auth
 from telecast.web.app import render
 
@@ -123,11 +124,27 @@ def approve(request: Request, target_id: int):
     try:
         if target.status in (TargetStatus.PENDING, TargetStatus.FAILED):
             target.status = TargetStatus.APPROVED
+            article = session.get(Article, target.article_id)
+            if article.approved_at is None:
+                article.approved_at = utcnow()
             session.commit()
+            reschedule(session)
         aid = target.article_id
     finally:
         session.close()
     return RedirectResponse(f"/articles/{aid}", status_code=303)
+
+
+@action.post("/articles/{article_id}/publish_now")
+def publish_now(request: Request, article_id: int):
+    session, article = _load(request, article_id)
+    try:
+        article.scheduled_at = None
+        article.updated_at = utcnow()
+        session.commit()
+    finally:
+        session.close()
+    return RedirectResponse(f"/articles/{article_id}", status_code=303)
 
 
 @action.post("/targets/{target_id}/skip")
@@ -150,7 +167,11 @@ def retry_target(request: Request, target_id: int):
         if target.status == TargetStatus.FAILED:
             target.status = TargetStatus.APPROVED
             target.error = None
+            article = session.get(Article, target.article_id)
+            if article.approved_at is None:
+                article.approved_at = utcnow()
             session.commit()
+            reschedule(session)
         aid = target.article_id
     finally:
         session.close()

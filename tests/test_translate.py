@@ -17,6 +17,12 @@ async def test_translate_returns_translation():
     assert "Привіт світ" in prompt
 
 
+async def test_translate_uses_given_model():
+    llm = FakeGemini(responses=[{"detected_language": "en", "translated_text": "x"}])
+    await translate("t", llm, model="custom-model")
+    assert llm.calls[0][0] == "custom-model"
+
+
 async def test_translate_missing_key_raises():
     llm = FakeGemini(responses=[{"nope": 1}])
     with pytest.raises(GeminiError):

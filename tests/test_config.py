@@ -21,3 +21,15 @@ def test_channel_list_converts_numeric_ids_to_int(monkeypatch):
     )
     s = Settings(_env_file=None)
     assert s.source_channel_list == ["@newsA", -1001687211358, -1002222222222]
+
+
+def test_model_defaults():
+    s = Settings(_env_file=None)
+    assert s.translate_model == "gemini-flash-latest"
+    assert s.enhance_model == "gemini-flash-latest"
+
+
+def test_recent_posts_default_and_override(monkeypatch):
+    assert Settings(_env_file=None).recent_posts == 5
+    monkeypatch.setenv("TELECAST_RECENT_POSTS", "7")
+    assert Settings(_env_file=None).recent_posts == 7

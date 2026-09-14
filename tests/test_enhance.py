@@ -16,6 +16,14 @@ async def test_enhance_injects_source_into_prompt_file(tmp_path):
     assert "Translated text here" in sent
 
 
+async def test_enhance_uses_given_model(tmp_path):
+    prompt = tmp_path / "enhance.md"
+    prompt.write_text("{source_text}")
+    llm = FakeGemini(responses=[dict(RESPONSE)])
+    await enhance("x", prompt, llm, model="custom-model")
+    assert llm.calls[0][0] == "custom-model"
+
+
 async def test_enhance_empty_text_uses_fallback(tmp_path):
     prompt = tmp_path / "enhance.md"
     prompt.write_text("{source_text}")

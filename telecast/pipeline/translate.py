@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 from telecast.pipeline.llm import GeminiError
 
-TRANSLATE_MODEL = "gemini-2.5-flash"
+TRANSLATE_MODEL = "gemini-flash-latest"
 
 TRANSLATE_PROMPT = """Translate the following social media post to English.
 Be literal and faithful; do not add, remove, or embellish anything.
@@ -18,8 +18,8 @@ class Translation:
     translated_text: str
 
 
-async def translate(text: str, llm) -> Translation:
-    data = await llm.generate_json(TRANSLATE_MODEL, TRANSLATE_PROMPT.format(text=text))
+async def translate(text: str, llm, model: str = TRANSLATE_MODEL) -> Translation:
+    data = await llm.generate_json(model, TRANSLATE_PROMPT.format(text=text))
     try:
         return Translation(
             detected_language=data["detected_language"],
