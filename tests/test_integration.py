@@ -61,7 +61,10 @@ async def test_ingest_to_published(session_factory, tmp_path):
         tid = s.exec(select(PublishTarget)).first().id
     client.post(f"/targets/{tid}/approve", data={"csrf": client.cookies["telecast_csrf"]})
 
-    # 4. publish
+    # 4. publish — approval queued it 5 min out; "publish now" makes it due
+    with session_factory() as s:
+        assert s.get(Article, aid).scheduled_at is not None
+    client.post(f"/articles/{aid}/publish_now", data={"csrf": client.cookies["telecast_csrf"]})
     assert await publish_one(session_factory, settings)
     with session_factory() as s:
         t = s.get(PublishTarget, tid)

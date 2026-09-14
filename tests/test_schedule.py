@@ -6,6 +6,8 @@ from telecast.publish.schedule import reschedule
 NOW = datetime(2026, 9, 14, 12, 0, tzinfo=timezone.utc)
 # SQLite stores datetimes without offset; read-back is naive UTC
 DB_NOW = NOW.replace(tzinfo=None)
+# first slot waits the default publish delay
+DB_FIRST = DB_NOW + timedelta(minutes=5)
 
 
 def _article(session, mid, approved_at=None, target_status=TargetStatus.APPROVED,
@@ -20,10 +22,16 @@ def _article(session, mid, approved_at=None, target_status=TargetStatus.APPROVED
     return a.id
 
 
-def test_single_article_scheduled_immediately(session):
+def test_single_article_scheduled_after_delay(session):
     aid = _article(session, 1, approved_at=NOW)
     reschedule(session, now=NOW)
-    assert session.get(Article, aid).scheduled_at == DB_NOW
+    assert session.get(Article, aid).scheduled_at == DB_FIRST
+
+
+def test_delay_is_configurable(session):
+    aid = _article(session, 1, approved_at=NOW)
+    reschedule(session, now=NOW, delay=timedelta(minutes=30))
+    assert session.get(Article, aid).scheduled_at == DB_NOW + timedelta(minutes=30)
 
 
 def test_three_articles_spread_over_24h_fifo(session):
@@ -33,9 +41,9 @@ def test_three_articles_spread_over_24h_fifo(session):
     ]
     reschedule(session, now=NOW)
     arts = [session.get(Article, aid) for aid in ids]
-    assert arts[0].scheduled_at == DB_NOW
-    assert arts[1].scheduled_at == DB_NOW + timedelta(hours=8)
-    assert arts[2].scheduled_at == DB_NOW + timedelta(hours=16)
+    assert arts[0].scheduled_at == DB_FIRST
+    assert arts[1].scheduled_at == DB_FIRST + timedelta(hours=8)
+    assert arts[2].scheduled_at == DB_FIRST + timedelta(hours=16)
 
 
 def test_reschedule_resets_existing_slots_from_now(session):
@@ -43,8 +51,8 @@ def test_reschedule_resets_existing_slots_from_now(session):
     a1 = _article(session, 1, approved_at=NOW - timedelta(hours=3), scheduled_at=old_slot)
     a2 = _article(session, 2, approved_at=NOW)
     reschedule(session, now=NOW)
-    assert session.get(Article, a1).scheduled_at == DB_NOW
-    assert session.get(Article, a2).scheduled_at == DB_NOW + timedelta(hours=12)
+    assert session.get(Article, a1).scheduled_at == DB_FIRST
+    assert session.get(Article, a2).scheduled_at == DB_FIRST + timedelta(hours=12)
 
 
 def test_articles_without_approved_targets_not_scheduled(session):

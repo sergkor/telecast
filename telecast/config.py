@@ -20,9 +20,13 @@ class Settings(BaseSettings):
     media_max_bytes: int = 512 * 1024 * 1024
     media_max_seconds: int = 3600
     youtube_privacy: str = "public"
+    tiktok_client_key: str = ""
+    tiktok_client_secret: str = ""
+    tiktok_privacy: str = "SELF_ONLY"
     enhance_prompt_path: Path = Path("prompts/enhance.md")
     stale_claim_minutes: int = 15
     recent_posts: int = 5
+    publish_delay_minutes: int = 5
 
     @property
     def source_channel_list(self) -> list[str | int]:
@@ -47,6 +51,10 @@ class Settings(BaseSettings):
     @property
     def youtube_token_path(self) -> Path:
         return self.data_dir / "youtube_token.json"
+
+    @property
+    def tiktok_token_path(self) -> Path:
+        return self.data_dir / "tiktok_token.json"
 
     @property
     def telethon_session_path(self) -> Path:

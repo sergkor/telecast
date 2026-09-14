@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlmodel import select
@@ -10,6 +12,10 @@ from telecast.web.app import render
 
 router = APIRouter(dependencies=[Depends(auth.require_login)])
 action = APIRouter(dependencies=[Depends(auth.require_csrf)])
+
+
+# states in which review is done enough that platform targets may be added
+ADDABLE_STATES = (ArticleState.PENDING_REVIEW, ArticleState.PUBLISHED)
 
 
 def _load(request, article_id: int):
@@ -31,7 +37,12 @@ def _detail_ctx(request, session, article):
             warnings[t.platform] = pub.validate(article, list(media), request.app.state.settings)
         except KeyError:
             warnings[t.platform] = [f"no publisher registered for {t.platform}"]
+    missing = []
+    if article.state in ADDABLE_STATES:
+        have = {t.platform for t in targets}
+        missing = [p for p in registry.names() if p not in have]
     return dict(article=article, media=media, targets=targets, warnings=warnings,
+                missing_platforms=missing,
                 publishing=any(t.status == TargetStatus.PUBLISHING for t in targets))
 
 
@@ -109,6 +120,29 @@ def discard(request: Request, article_id: int):
     return RedirectResponse("/", status_code=303)
 
 
+@action.post("/articles/{article_id}/add_target")
+def add_target(request: Request, article_id: int, platform: str = Form(...)):
+    session, article = _load(request, article_id)
+    try:
+        if platform not in registry.names():
+            raise HTTPException(400, f"unknown platform {platform}")
+        if article.state not in ADDABLE_STATES:
+            raise HTTPException(400, f"cannot add targets in state {article.state.value}")
+        exists = session.exec(
+            select(PublishTarget)
+            .where(PublishTarget.article_id == article.id)
+            .where(PublishTarget.platform == platform)
+        ).first()
+        if exists:
+            raise HTTPException(400, f"{platform} target already exists")
+        session.add(PublishTarget(article_id=article.id, platform=platform))
+        article.updated_at = utcnow()
+        session.commit()
+    finally:
+        session.close()
+    return RedirectResponse(f"/articles/{article_id}", status_code=303)
+
+
 def _target(request, target_id: int):
     session = request.app.state.session_factory()
     target = session.get(PublishTarget, target_id)
@@ -128,11 +162,15 @@ def approve(request: Request, target_id: int):
             if article.approved_at is None:
                 article.approved_at = utcnow()
             session.commit()
-            reschedule(session)
+            reschedule(session, delay=_delay(request))
         aid = target.article_id
     finally:
         session.close()
     return RedirectResponse(f"/articles/{aid}", status_code=303)
+
+
+def _delay(request) -> timedelta:
+    return timedelta(minutes=request.app.state.settings.publish_delay_minutes)
 
 
 @action.post("/articles/{article_id}/publish_now")
@@ -171,7 +209,7 @@ def retry_target(request: Request, target_id: int):
             if article.approved_at is None:
                 article.approved_at = utcnow()
             session.commit()
-            reschedule(session)
+            reschedule(session, delay=_delay(request))
         aid = target.article_id
     finally:
         session.close()

@@ -33,3 +33,9 @@ def test_recent_posts_default_and_override(monkeypatch):
     assert Settings(_env_file=None).recent_posts == 5
     monkeypatch.setenv("TELECAST_RECENT_POSTS", "7")
     assert Settings(_env_file=None).recent_posts == 7
+
+
+def test_publish_delay_default_and_override(monkeypatch):
+    assert Settings(_env_file=None).publish_delay_minutes == 5
+    monkeypatch.setenv("TELECAST_PUBLISH_DELAY_MINUTES", "10")
+    assert Settings(_env_file=None).publish_delay_minutes == 10

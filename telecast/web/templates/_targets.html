@@ -28,4 +28,15 @@
     </form>
   </div>
   {% endfor %}
+  {% if missing_platforms %}
+  <div class="card">
+    {% for p in missing_platforms %}
+    <form method="post" action="/articles/{{ article.id }}/add_target" style="display:inline">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <input type="hidden" name="platform" value="{{ p }}">
+      <button>Add {{ p }}</button>
+    </form>
+    {% endfor %}
+  </div>
+  {% endif %}
 </div>

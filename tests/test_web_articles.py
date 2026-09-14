@@ -1,5 +1,6 @@
 import pytest
 from fastapi.testclient import TestClient
+from sqlmodel import select
 
 from telecast.config import Settings
 from telecast.models import Article, ArticleState, PublishTarget, TargetStatus
@@ -109,3 +110,77 @@ def test_publish_now_clears_schedule(client, article, session_factory):
     client.post(f"/articles/{article}/publish_now", data={"csrf": _csrf(client)})
     with session_factory() as s:
         assert s.get(Article, article).scheduled_at is None
+
+
+class StubPublisher:
+    def __init__(self, name):
+        self.name = name
+
+    def validate(self, article, media, settings):
+        return []
+
+    def adapt(self, article):
+        raise NotImplementedError
+
+    async def publish(self, article, media, adapted, settings):
+        raise NotImplementedError
+
+
+def _set_state(session_factory, article_id, state):
+    with session_factory() as s:
+        s.get(Article, article_id).state = state
+        s.commit()
+
+
+def test_add_target_creates_pending_on_published_article(client, article, session_factory):
+    registry.register(StubPublisher("telegram"))
+    registry.register(StubPublisher("tiktok"))
+    _set_state(session_factory, article, ArticleState.PUBLISHED)
+    client.post(f"/articles/{article}/add_target",
+                data={"platform": "tiktok", "csrf": _csrf(client)})
+    with session_factory() as s:
+        t = s.exec(select(PublishTarget).where(PublishTarget.article_id == article,
+                                               PublishTarget.platform == "tiktok")).one()
+        assert t.status == TargetStatus.PENDING
+
+
+def test_add_target_rejects_unregistered_platform(client, article, session_factory):
+    _set_state(session_factory, article, ArticleState.PUBLISHED)
+    r = client.post(f"/articles/{article}/add_target",
+                    data={"platform": "myspace", "csrf": _csrf(client)})
+    assert r.status_code == 400
+
+
+def test_add_target_rejects_duplicate(client, article, session_factory):
+    registry.register(StubPublisher("telegram"))
+    _set_state(session_factory, article, ArticleState.PUBLISHED)
+    r = client.post(f"/articles/{article}/add_target",
+                    data={"platform": "telegram", "csrf": _csrf(client)})
+    assert r.status_code == 400
+    with session_factory() as s:
+        rows = s.exec(select(PublishTarget).where(PublishTarget.article_id == article,
+                                                  PublishTarget.platform == "telegram")).all()
+        assert len(rows) == 1
+
+
+def test_add_target_rejects_unreviewed_article(client, article, session_factory):
+    registry.register(StubPublisher("tiktok"))
+    _set_state(session_factory, article, ArticleState.INGESTED)
+    r = client.post(f"/articles/{article}/add_target",
+                    data={"platform": "tiktok", "csrf": _csrf(client)})
+    assert r.status_code == 400
+
+
+def test_detail_offers_missing_platforms(client, article, session_factory):
+    registry.register(StubPublisher("telegram"))
+    registry.register(StubPublisher("tiktok"))
+    _set_state(session_factory, article, ArticleState.PUBLISHED)
+    r = client.get(f"/articles/{article}")
+    assert "add_target" in r.text and "tiktok" in r.text
+
+
+def test_detail_hides_add_when_no_missing_platforms(client, article, session_factory):
+    registry.register(StubPublisher("telegram"))
+    _set_state(session_factory, article, ArticleState.PUBLISHED)
+    r = client.get(f"/articles/{article}")
+    assert "add_target" not in r.text

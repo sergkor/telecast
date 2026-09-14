@@ -44,6 +44,75 @@ def cmd_auth_youtube(_args):
     print(f"YouTube token saved to {settings.youtube_token_path}")
 
 
+def cmd_auth_tiktok(_args):
+    import hashlib
+    import http.server
+    import json
+    import secrets
+    import urllib.parse
+    import webbrowser
+
+    import httpx
+
+    from telecast.config import Settings
+    from telecast.publish.tiktok import API, AUTH_URL, SCOPES
+
+    settings = Settings()
+    settings.data_dir.mkdir(parents=True, exist_ok=True)
+    port = 8321
+    redirect_uri = f"http://127.0.0.1:{port}/callback"
+    state = secrets.token_urlsafe(16)
+    verifier = secrets.token_urlsafe(43)
+    # TikTok PKCE uses hex-encoded SHA256, not base64url
+    challenge = hashlib.sha256(verifier.encode()).hexdigest()
+    url = AUTH_URL + "?" + urllib.parse.urlencode({
+        "client_key": settings.tiktok_client_key,
+        "scope": SCOPES,
+        "response_type": "code",
+        "redirect_uri": redirect_uri,
+        "state": state,
+        "code_challenge": challenge,
+        "code_challenge_method": "S256",
+    })
+    result = {}
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            params = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            result.update({k: v[0] for k, v in params.items()})
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"Authorized. You can close this tab.")
+
+        def log_message(self, *a):
+            pass
+
+    print(f"Register {redirect_uri} as a redirect URI in your TikTok app, then authorize:")
+    print(url)
+    webbrowser.open(url)
+    with http.server.HTTPServer(("127.0.0.1", port), Handler) as server:
+        while "code" not in result and "error" not in result:
+            server.handle_request()
+    if result.get("error"):
+        raise SystemExit(f"tiktok auth failed: {result['error']}")
+    if result.get("state") != state:
+        raise SystemExit("tiktok auth failed: state mismatch")
+    resp = httpx.post(f"{API}/oauth/token/", data={
+        "client_key": settings.tiktok_client_key,
+        "client_secret": settings.tiktok_client_secret,
+        "code": result["code"],
+        "grant_type": "authorization_code",
+        "redirect_uri": redirect_uri,
+        "code_verifier": verifier,
+    })
+    resp.raise_for_status()
+    token = resp.json()
+    if "refresh_token" not in token:
+        raise SystemExit(f"tiktok auth failed: {token}")
+    settings.tiktok_token_path.write_text(json.dumps(token))
+    print(f"TikTok token saved to {settings.tiktok_token_path}")
+
+
 def main():
     parser = argparse.ArgumentParser(prog="telecast")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -52,5 +121,6 @@ def main():
     auth_sub = auth.add_subparsers(dest="service", required=True)
     auth_sub.add_parser("telegram").set_defaults(fn=cmd_auth_telegram)
     auth_sub.add_parser("youtube").set_defaults(fn=cmd_auth_youtube)
+    auth_sub.add_parser("tiktok").set_defaults(fn=cmd_auth_tiktok)
     args = parser.parse_args()
     args.fn(args)
