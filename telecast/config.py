@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     tiktok_client_key: str = ""
     tiktok_client_secret: str = ""
     tiktok_privacy: str = "SELF_ONLY"
+    pinterest_app_id: str = ""
+    pinterest_app_secret: str = ""
+    pinterest_board_id: str = ""
     enhance_prompt_path: Path = Path("prompts/enhance.md")
     stale_claim_minutes: int = 15
     recent_posts: int = 5
@@ -55,6 +58,10 @@ class Settings(BaseSettings):
     @property
     def tiktok_token_path(self) -> Path:
         return self.data_dir / "tiktok_token.json"
+
+    @property
+    def pinterest_token_path(self) -> Path:
+        return self.data_dir / "pinterest_token.json"
 
     @property
     def telethon_session_path(self) -> Path:

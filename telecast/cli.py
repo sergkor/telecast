@@ -113,6 +113,75 @@ def cmd_auth_tiktok(_args):
     print(f"TikTok token saved to {settings.tiktok_token_path}")
 
 
+def cmd_auth_pinterest(_args):
+    import http.server
+    import json
+    import secrets
+    import urllib.parse
+    import webbrowser
+
+    import httpx
+
+    from telecast.config import Settings
+    from telecast.publish.pinterest import API, AUTH_URL, SCOPES
+
+    settings = Settings()
+    settings.data_dir.mkdir(parents=True, exist_ok=True)
+    if not settings.pinterest_board_id:
+        raise SystemExit("set TELECAST_PINTEREST_BOARD_ID first")
+    port = 8321
+    redirect_uri = f"http://localhost:{port}/callback"
+    state = secrets.token_urlsafe(16)
+    url = AUTH_URL + "?" + urllib.parse.urlencode({
+        "client_id": settings.pinterest_app_id,
+        "redirect_uri": redirect_uri,
+        "response_type": "code",
+        "scope": SCOPES,
+        "state": state,
+    })
+    result = {}
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            params = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            result.update({k: v[0] for k, v in params.items()})
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"Authorized. You can close this tab.")
+
+        def log_message(self, *a):
+            pass
+
+    print(f"Register {redirect_uri} as a redirect URI in your Pinterest app, then authorize:")
+    print(url)
+    webbrowser.open(url)
+    with http.server.HTTPServer(("127.0.0.1", port), Handler) as server:
+        while "code" not in result and "error" not in result:
+            server.handle_request()
+    if result.get("error"):
+        raise SystemExit(f"pinterest auth failed: {result['error']}")
+    if result.get("state") != state:
+        raise SystemExit("pinterest auth failed: state mismatch")
+    resp = httpx.post(f"{API}/oauth/token", data={
+        "grant_type": "authorization_code",
+        "code": result["code"],
+        "redirect_uri": redirect_uri,
+        "continuous_refresh": "true",
+    }, auth=(settings.pinterest_app_id, settings.pinterest_app_secret))
+    resp.raise_for_status()
+    token = resp.json()
+    if "refresh_token" not in token:
+        raise SystemExit(f"pinterest auth failed: {token}")
+    board = httpx.get(f"{API}/boards/{settings.pinterest_board_id}",
+                      headers={"Authorization": f"Bearer {token['access_token']}"})
+    if board.status_code != 200:
+        raise SystemExit(
+            f"pinterest board {settings.pinterest_board_id} not accessible: {board.text}")
+    settings.pinterest_token_path.write_text(json.dumps(token))
+    print(f"Pinterest token saved to {settings.pinterest_token_path} "
+          f"(board: {board.json().get('name')})")
+
+
 def main():
     parser = argparse.ArgumentParser(prog="telecast")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -122,5 +191,6 @@ def main():
     auth_sub.add_parser("telegram").set_defaults(fn=cmd_auth_telegram)
     auth_sub.add_parser("youtube").set_defaults(fn=cmd_auth_youtube)
     auth_sub.add_parser("tiktok").set_defaults(fn=cmd_auth_tiktok)
+    auth_sub.add_parser("pinterest").set_defaults(fn=cmd_auth_pinterest)
     args = parser.parse_args()
     args.fn(args)

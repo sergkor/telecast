@@ -10,6 +10,7 @@ from telecast.pipeline.runner import pipeline_loop, reaper_loop
 from telecast.publish import base as registry
 from telecast.publish.telegram import TelegramPublisher
 from telecast.publish.worker import publish_loop
+from telecast.publish.pinterest import PinterestPublisher
 from telecast.publish.tiktok import TikTokPublisher
 from telecast.publish.youtube import YouTubePublisher
 from telecast.web.app import create_app
@@ -34,6 +35,7 @@ def build():
     registry.register(TelegramPublisher())
     registry.register(YouTubePublisher())
     registry.register(TikTokPublisher())
+    registry.register(PinterestPublisher())
 
     stop_event = asyncio.Event()
 
