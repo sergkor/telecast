@@ -33,7 +33,7 @@ def build():
     session_factory = make_session_factory(engine)
     llm = RealGeminiClient(settings.gemini_api_key)
     registry.register(TelegramPublisher())
-    registry.register(YouTubePublisher())
+    registry.register(YouTubePublisher(channel_url=settings.telegram_channel_url))
     registry.register(TikTokPublisher())
     registry.register(PinterestPublisher())
 

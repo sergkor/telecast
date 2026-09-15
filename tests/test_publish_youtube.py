@@ -43,6 +43,23 @@ async def test_publish_uses_injected_upload_fn(tmp_path):
     assert calls["file_path"] == "v.mp4"
 
 
+def test_adapt_appends_telegram_channel_link_when_configured():
+    pub = YouTubePublisher(channel_url="https://t.me/mychannel")
+    adapted = pub.adapt(make_article())
+    assert adapted.body == "Body\n\n#a #b\n\nTelegram: https://t.me/mychannel"
+
+
+def test_adapt_omits_telegram_link_when_not_configured():
+    pub = YouTubePublisher()
+    adapted = pub.adapt(make_article())
+    assert "Telegram" not in adapted.body
+
+
+def test_settings_telegram_channel_url_default(tmp_path):
+    settings = Settings(_env_file=None, data_dir=tmp_path)
+    assert settings.telegram_channel_url == ""
+
+
 def test_validate_blocks_without_token(tmp_path):
     pub = YouTubePublisher()
     settings = Settings(_env_file=None, data_dir=tmp_path)

@@ -39,8 +39,9 @@ def _real_upload(file_path: str, title: str, description: str, privacy: str,
 class YouTubePublisher:
     name = "youtube"
 
-    def __init__(self, upload_fn: Callable | None = None):
+    def __init__(self, upload_fn: Callable | None = None, channel_url: str = ""):
         self._upload_fn = upload_fn or _real_upload
+        self._channel_url = channel_url
 
     def validate(self, article: Article, media: list[MediaFile], settings: Settings) -> list[str]:
         warnings = []
@@ -62,6 +63,8 @@ class YouTubePublisher:
         body = (article.final_text or "").strip()
         if article.hashtags:
             body = f"{body}\n\n{article.hashtags}".strip()
+        if self._channel_url:
+            body = f"{body}\n\nTelegram: {self._channel_url}".strip()
         return Adapted(title=title, body=body)
 
     async def publish(self, article: Article, media: list[MediaFile], adapted: Adapted,

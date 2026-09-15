@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     source_channels: str = ""
     bot_token: str = ""
     dest_channel: str = ""
+    telegram_channel_url: str = ""
     gemini_api_key: str = ""
     translate_model: str = "gemini-flash-latest"
     enhance_model: str = "gemini-flash-latest"
