@@ -14,7 +14,7 @@ class GoodPublisher:
     def validate(self, article, media, settings):
         return []
 
-    def adapt(self, article):
+    def adapt(self, article, context=None):
         return Adapted(title=article.title or "", body=article.final_text or "")
 
     async def publish(self, article, media, adapted, settings):
@@ -119,6 +119,78 @@ async def test_approved_target_for_unconfigured_platform_is_not_claimed(session_
     settings = Settings(_env_file=None, data_dir=tmp_path)
     with session_factory() as s:
         aid = _setup(s, [StubPublisher("wordpress", configured=False)])
+    assert not await publish_one(session_factory, settings)
+    with session_factory() as s:
+        assert s.get(PublishTarget, 1).status == TargetStatus.APPROVED
+        assert s.get(Article, aid).state == ArticleState.PENDING_REVIEW
+    registry.clear()
+
+
+class DependentPublisher(GoodPublisher):
+    """Stands in for wordpress: needs `good` to have published first."""
+
+    name = "dependent"
+    depends_on = "good"
+
+    def __init__(self):
+        self.contexts = []
+
+    def adapt(self, article, context=None):
+        self.contexts.append(context)
+        return Adapted(title=article.title or "", body=article.final_text or "")
+
+    async def publish(self, article, media, adapted, settings):
+        return "https://example.com/dependent"
+
+
+async def test_dependent_target_waits_while_its_dependency_is_unpublished(
+        session_factory, tmp_path):
+    settings = Settings(_env_file=None, data_dir=tmp_path)
+    with session_factory() as s:
+        aid = _setup(s, [DependentPublisher()])
+        registry.register(GoodPublisher())
+        s.add(PublishTarget(article_id=aid, platform="good",
+                            status=TargetStatus.PENDING))
+        s.commit()
+    assert not await publish_one(session_factory, settings)
+    with session_factory() as s:
+        assert s.get(PublishTarget, 1).status == TargetStatus.APPROVED
+    registry.clear()
+
+
+async def test_dependent_target_publishes_right_after_its_dependency(
+        session_factory, tmp_path):
+    settings = Settings(_env_file=None, data_dir=tmp_path)
+    dependent = DependentPublisher()
+    with session_factory() as s:
+        aid = _setup(s, [dependent])
+        registry.register(GoodPublisher())
+        s.add(PublishTarget(article_id=aid, platform="good",
+                            status=TargetStatus.APPROVED))
+        s.commit()
+
+    assert await publish_one(session_factory, settings)
+    with session_factory() as s:
+        assert s.get(PublishTarget, 1).status == TargetStatus.APPROVED  # dependent waited
+        assert s.get(PublishTarget, 2).status == TargetStatus.PUBLISHED
+
+    assert await publish_one(session_factory, settings)
+    with session_factory() as s:
+        assert s.get(PublishTarget, 1).status == TargetStatus.PUBLISHED
+        assert s.get(Article, aid).state == ArticleState.PUBLISHED
+    assert dependent.contexts[-1].published["good"] == "https://example.com/1"
+    registry.clear()
+
+
+async def test_failed_dependency_leaves_the_dependent_target_waiting(
+        session_factory, tmp_path):
+    settings = Settings(_env_file=None, data_dir=tmp_path)
+    with session_factory() as s:
+        aid = _setup(s, [DependentPublisher()])
+        registry.register(GoodPublisher())
+        s.add(PublishTarget(article_id=aid, platform="good",
+                            status=TargetStatus.FAILED))
+        s.commit()
     assert not await publish_one(session_factory, settings)
     with session_factory() as s:
         assert s.get(PublishTarget, 1).status == TargetStatus.APPROVED

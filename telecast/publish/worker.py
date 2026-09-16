@@ -6,7 +6,33 @@ from sqlmodel import select
 from telecast.config import Settings
 from telecast.models import Article, ArticleState, MediaFile, PublishTarget, TargetStatus, utcnow
 from telecast.publish import base as registry
+from telecast.publish.base import Context
 from telecast.publish.recalc import DONE_STATUSES, effective_targets
+
+
+def _published_urls(session, article_id: int) -> dict[str, str]:
+    return {
+        t.platform: t.external_url
+        for t in session.exec(
+            select(PublishTarget).where(PublishTarget.article_id == article_id)
+        ).all()
+        if t.status == TargetStatus.PUBLISHED and t.external_url
+    }
+
+
+def _context(session, article_id: int) -> Context:
+    return Context(published=_published_urls(session, article_id))
+
+
+def _first_ready(session, targets: list[PublishTarget]) -> PublishTarget | None:
+    """The first target whose dependency, if it declares one, has already
+    published. A target still waiting is left APPROVED — it becomes ready on
+    a later pass, which is the pass right after its dependency publishes."""
+    for target in targets:
+        needs = registry.dependency(target.platform)
+        if needs is None or needs in _published_urls(session, target.article_id):
+            return target
+    return None
 
 
 async def publish_one(session_factory, settings: Settings) -> bool:
@@ -23,7 +49,7 @@ async def publish_one(session_factory, settings: Settings) -> bool:
         )
         if unconfigured:
             stmt = stmt.where(PublishTarget.platform.not_in(unconfigured))
-        target = session.exec(stmt).first()
+        target = _first_ready(session, session.exec(stmt).all())
         if target is None:
             return False
 
@@ -36,7 +62,7 @@ async def publish_one(session_factory, settings: Settings) -> bool:
         ).all()
         try:
             publisher = registry.get(target.platform)
-            adapted = publisher.adapt(article)
+            adapted = publisher.adapt(article, _context(session, article.id))
             url = await publisher.publish(article, list(media), adapted, settings)
         except Exception as e:
             logger.exception(f"publish failed: article={article.id} platform={target.platform}")

@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Protocol
 
 from telecast.config import Settings
@@ -21,14 +21,25 @@ class Adapted:
     body: str
 
 
+@dataclass
+class Context:
+    """What the article's other platforms already produced — a publisher
+    that links to or embeds a sibling's result reads it from here."""
+
+    published: dict[str, str] = field(default_factory=dict)  # platform -> external_url
+
+
 class Publisher(Protocol):
     name: str
+    # Platform whose published URL this one needs. A publisher declaring it
+    # is only claimed once that sibling target is PUBLISHED.
+    depends_on: str | None
 
     def configured(self, settings: Settings) -> bool: ...
 
     def validate(self, article: Article, media: list[MediaFile], settings: Settings) -> list[str]: ...
 
-    def adapt(self, article: Article) -> Adapted: ...
+    def adapt(self, article: Article, context: Context | None = None) -> Adapted: ...
 
     async def publish(
         self, article: Article, media: list[MediaFile], adapted: Adapted, settings: Settings
@@ -66,6 +77,11 @@ def unconfigured(settings: Settings) -> set[str]:
     """Registered publishers missing config — excluded from review and
     from an article's final state."""
     return {n for n, p in _registry.items() if not _is_configured(p, settings)}
+
+
+def dependency(name: str) -> str | None:
+    """The platform `name` must follow, if any."""
+    return getattr(_registry[name], "depends_on", None)
 
 
 def clear() -> None:

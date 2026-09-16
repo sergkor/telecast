@@ -25,7 +25,7 @@ class StubPublisher:
     def validate(self, article, media, settings):
         return []
 
-    def adapt(self, article):
+    def adapt(self, article, context=None):
         from telecast.publish.base import Adapted
 
         return Adapted(title=article.title or "", body=article.final_text or "")

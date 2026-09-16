@@ -196,6 +196,38 @@ An article with an approved target on an unconfigured plugin is not
 queued and does not anchor the tail. `publish_now` clears `scheduled_at`,
 which the worker reads as "due".
 
+### Publisher dependencies — WordPress follows YouTube (added 2026-09-16)
+
+A publisher may declare `depends_on = "<platform>"`, meaning it needs
+that platform's published URL. `publish/base.py:dependency(name)` exposes
+it, and the publish worker only claims a declaring target once a sibling
+target for that platform is `PUBLISHED` with an `external_url`; otherwise
+the target is skipped over and stays `APPROVED`.
+
+`WordPressPublisher` declares `depends_on = "youtube"`:
+
+- Because both targets share one article slot and the worker re-enters
+  `publish_one` immediately after a successful publish, the WordPress
+  post goes up seconds after the YouTube upload finishes — no separate
+  schedule.
+- The post no longer carries the video: it opens with a `wp:embed` block
+  for the YouTube URL, followed by the article paragraphs and hashtags,
+  and closes with links to the video on YouTube and to the Telegram
+  channel (`telegram_channel_url`, injected at registration; omitted when
+  unset). Only the poster frame is uploaded, as `featured_media`.
+- Nothing fails when YouTube cannot deliver — an unconfigured, skipped or
+  failed `youtube` target simply leaves the WordPress target waiting.
+  `validate()` warns about that before approval.
+
+`adapt` gained a second parameter for this: `adapt(article, context)`,
+where `Context.published` maps platform → `external_url` for the
+article's already-published targets. The worker builds it; publishers
+that don't need it ignore it.
+
+A caveat left standing: an article approved *only* for WordPress still
+receives a scheduler slot it never consumes. It delays nothing else —
+the tail keeps advancing — the article just sits in the queue.
+
 ### Republishing (added 2026-09-15)
 
 Articles in state `PUBLISHED` can be re-queued for any platform — e.g.

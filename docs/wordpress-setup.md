@@ -1,7 +1,13 @@
 # WordPress setup for Telecast
 
 How to prepare a self-hosted WordPress site to receive Telecast articles
-(video + enhanced text) via the REST API.
+via the REST API.
+
+Telecast does **not** upload the video to WordPress. A post is published
+right after the article's YouTube upload finishes, and embeds that
+YouTube video; only the poster frame is uploaded, as the featured image.
+A WordPress target therefore waits for its `youtube` sibling — approve
+both, or the post never goes up.
 
 ## 1. Requirements
 
@@ -33,52 +39,26 @@ If the Application Passwords section is missing, the site is not on
 HTTPS or a security plugin disabled it — re-enable with
 `add_filter('wp_is_application_passwords_available', '__return_true');`.
 
-## 3. Raise upload limits for video
+## 3. Uploads
 
-Telecast uploads the original Telegram video (up to hundreds of MB).
-Defaults on most hosts (2–64 MB) are far too low.
-
-**php.ini** (or hosting panel → PHP settings):
-
-```ini
-upload_max_filesize = 512M
-post_max_size = 512M
-max_execution_time = 600
-memory_limit = 256M
-```
-
-**nginx** (if used) — in the server block:
-
-```nginx
-client_max_body_size 512m;
-```
-
-**Apache** — usually respects php.ini; some hosts also need in
-`.htaccess`:
-
-```apache
-php_value upload_max_filesize 512M
-php_value post_max_size 512M
-```
-
-Verify in **Media → Add New** — it shows "Maximum upload file size".
-Match the value to `TELECAST_MEDIA_MAX_BYTES` (default 512 MB).
+Only the video thumbnail (a JPEG of a few hundred KB) is uploaded, so the
+default host limits are fine. No php.ini or nginx tuning is needed.
 
 ## 4. Serving the articles well
 
 - **Featured image** — Telecast sets the video thumbnail as the post's
   featured image, so any theme with post cards/grids works out of the
   box. Pick a theme that shows featured images on archive pages.
-- **Native video player** — posts embed the video as a standard
-  `wp-block-video` block with a poster frame; no plugin needed.
+- **YouTube player** — posts open with a standard `wp:embed` block
+  pointing at the YouTube URL; WordPress' built-in oEmbed renders the
+  responsive player, no plugin needed. The post ends with a link to the
+  video on YouTube and one to the Telegram channel
+  (`TELECAST_TELEGRAM_CHANNEL_URL`; omitted when unset).
 - **Caching** — a page cache (WP Super Cache, W3 Total Cache, or host
   level) is recommended; posts are written once and rarely change.
   Exclude `/wp-json/` from caching so publishing keeps working.
-- **Video delivery** — videos are served as static files from
-  `wp-content/uploads`. If traffic grows, put the site behind a CDN
-  (Cloudflare etc.) so video bytes don't hit PHP hosting.
-- **Disk space** — every article stores its full video in the media
-  library. Monitor hosting disk usage; prune old media if needed.
+- **Video delivery** — video bytes are served by YouTube, never by the
+  WordPress host.
 - **Security plugins** (Wordfence etc.) — allowlist the REST API for
   the `telecast-bot` user if the plugin rate-limits or blocks
   `/wp-json/wp/v2/*` requests.
@@ -90,5 +70,6 @@ curl -u 'telecast-bot:abcd efgh ijkl mnop qrst uvwx' \
   https://blog.example.com/wp-json/wp/v2/users/me
 ```
 
-A JSON user object means auth works. Then approve an article for
-`wordpress` in the Telecast review UI.
+A JSON user object means auth works. Then approve an article for both
+`youtube` and `wordpress` in the Telecast review UI — the post appears
+seconds after the YouTube upload completes.

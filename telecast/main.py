@@ -37,7 +37,7 @@ def build():
     registry.register(YouTubePublisher(channel_url=settings.telegram_channel_url))
     registry.register(TikTokPublisher())
     registry.register(PinterestPublisher())
-    registry.register(WordPressPublisher())
+    registry.register(WordPressPublisher(channel_url=settings.telegram_channel_url))
 
     stop_event = asyncio.Event()
 
