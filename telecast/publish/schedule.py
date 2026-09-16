@@ -9,16 +9,21 @@ DEFAULT_DELAY = timedelta(minutes=5)
 
 
 def reschedule(session, now: datetime | None = None,
-               delay: timedelta = DEFAULT_DELAY) -> int:
+               delay: timedelta = DEFAULT_DELAY,
+               unconfigured: set[str] = frozenset()) -> int:
     """Recompute publish slots for every article with an approved, unpublished
     target: FIFO by approval time, first slot after `delay`, the rest spread
-    evenly over the following 24h."""
+    evenly over the following 24h. Targets of plugins missing their config
+    cannot publish, so they claim no slot."""
     now = now or utcnow()
-    queued_ids = session.exec(
+    stmt = (
         select(PublishTarget.article_id)
         .where(PublishTarget.status == TargetStatus.APPROVED)
         .distinct()
-    ).all()
+    )
+    if unconfigured:
+        stmt = stmt.where(PublishTarget.platform.not_in(unconfigured))
+    queued_ids = session.exec(stmt).all()
     if not queued_ids:
         return 0
     articles = session.exec(

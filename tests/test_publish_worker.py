@@ -5,6 +5,7 @@ from telecast.models import Article, ArticleState, MediaFile, PublishTarget, Tar
 from telecast.publish import base as registry
 from telecast.publish.base import Adapted
 from telecast.publish.worker import publish_one
+from tests.fakes import StubPublisher
 
 
 class GoodPublisher:
@@ -97,4 +98,29 @@ async def test_due_schedule_is_published(session_factory, tmp_path):
     with session_factory() as s:
         assert s.get(PublishTarget, 1).status == TargetStatus.PUBLISHED
         assert s.get(Article, aid).state == ArticleState.PUBLISHED
+    registry.clear()
+
+
+async def test_unconfigured_sibling_does_not_block_published(session_factory, tmp_path):
+    settings = Settings(_env_file=None, data_dir=tmp_path)
+    with session_factory() as s:
+        aid = _setup(s, [GoodPublisher()])
+        registry.register(StubPublisher("wordpress", configured=False))
+        s.add(PublishTarget(article_id=aid, platform="wordpress",
+                            status=TargetStatus.PENDING))
+        s.commit()
+    assert await publish_one(session_factory, settings)
+    with session_factory() as s:
+        assert s.get(Article, aid).state == ArticleState.PUBLISHED
+    registry.clear()
+
+
+async def test_approved_target_for_unconfigured_platform_is_not_claimed(session_factory, tmp_path):
+    settings = Settings(_env_file=None, data_dir=tmp_path)
+    with session_factory() as s:
+        aid = _setup(s, [StubPublisher("wordpress", configured=False)])
+    assert not await publish_one(session_factory, settings)
+    with session_factory() as s:
+        assert s.get(PublishTarget, 1).status == TargetStatus.APPROVED
+        assert s.get(Article, aid).state == ArticleState.PENDING_REVIEW
     registry.clear()

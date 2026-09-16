@@ -72,3 +72,12 @@ async def test_publish_album_calls_sendMediaGroup_with_caption_on_first(tmp_path
     assert "attach://video0" in captured["data"]
     assert "attach://video1" in captured["data"]
     assert url == "https://t.me/dest/99"
+
+
+def test_configured_requires_bot_token_and_dest_channel(tmp_path):
+    pub = TelegramPublisher()
+    assert pub.configured(make_settings(tmp_path))
+    assert not pub.configured(Settings(_env_file=None, data_dir=tmp_path,
+                                       dest_channel="@dest"))
+    assert not pub.configured(Settings(_env_file=None, data_dir=tmp_path,
+                                       bot_token="123:abc"))

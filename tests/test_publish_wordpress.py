@@ -84,3 +84,10 @@ def test_settings_wordpress_defaults(tmp_path):
     assert settings.wordpress_username == ""
     assert settings.wordpress_app_password == ""
     assert settings.wordpress_status == "publish"
+
+
+def test_configured_requires_url_username_and_app_password(tmp_path):
+    pub = WordPressPublisher()
+    assert pub.configured(make_settings(tmp_path))
+    assert not pub.configured(make_settings(tmp_path, wordpress_app_password=""))
+    assert not pub.configured(Settings(_env_file=None, data_dir=tmp_path))

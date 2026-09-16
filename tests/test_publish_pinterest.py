@@ -103,3 +103,13 @@ def test_settings_pinterest_defaults(tmp_path):
     settings = Settings(_env_file=None, data_dir=tmp_path)
     assert settings.pinterest_board_id == ""
     assert settings.pinterest_token_path == tmp_path / "pinterest_token.json"
+
+
+def test_configured_requires_app_credentials_board_and_token_file(tmp_path):
+    pub = PinterestPublisher()
+    creds = dict(_env_file=None, data_dir=tmp_path, pinterest_app_id="i",
+                 pinterest_app_secret="s", pinterest_board_id="b")
+    assert not pub.configured(Settings(**creds))
+    (tmp_path / "pinterest_token.json").write_text("{}")
+    assert pub.configured(Settings(**creds))
+    assert not pub.configured(Settings(**{**creds, "pinterest_board_id": ""}))

@@ -43,6 +43,9 @@ class YouTubePublisher:
         self._upload_fn = upload_fn or _real_upload
         self._channel_url = channel_url
 
+    def configured(self, settings: Settings) -> bool:
+        return settings.youtube_token_path.exists()
+
     def validate(self, article: Article, media: list[MediaFile], settings: Settings) -> list[str]:
         warnings = []
         if not media:

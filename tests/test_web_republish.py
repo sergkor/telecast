@@ -6,6 +6,7 @@ from telecast.models import Article, ArticleState, PublishTarget, TargetStatus, 
 from telecast.publish import base as registry
 from telecast.publish.base import Adapted
 from telecast.web.app import create_app
+from tests.fakes import StubPublisher
 
 
 class FakeYouTube:
@@ -101,3 +102,19 @@ def test_published_tab_shows_republish_controls(client, session_factory):
     r = client.get("/?tab=published")
     assert 'action="/republish"' in r.text
     assert 'name="article_ids"' in r.text
+
+
+def test_republish_picker_excludes_unconfigured_plugins(client, session_factory):
+    registry.register(StubPublisher("wordpress", configured=False))
+    _published(session_factory, 7)
+    r = client.get("/?tab=published")
+    assert '<option value="youtube"' in r.text
+    assert '<option value="wordpress"' not in r.text
+
+
+def test_bulk_republish_rejects_unconfigured_platform(client, session_factory):
+    registry.register(StubPublisher("wordpress", configured=False))
+    aid = _published(session_factory, 8)
+    r = client.post("/republish", data={"article_ids": [aid], "platform": "wordpress",
+                                        "csrf": _csrf(client)}, follow_redirects=False)
+    assert r.status_code == 400

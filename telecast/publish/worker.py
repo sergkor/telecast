@@ -6,17 +6,24 @@ from sqlmodel import select
 from telecast.config import Settings
 from telecast.models import Article, ArticleState, MediaFile, PublishTarget, TargetStatus, utcnow
 from telecast.publish import base as registry
+from telecast.publish.recalc import DONE_STATUSES, effective_targets
 
 
 async def publish_one(session_factory, settings: Settings) -> bool:
+    unconfigured = registry.unconfigured(settings)
     with session_factory() as session:
-        target = session.exec(
+        # A target whose plugin lost its config stays APPROVED and waits
+        # rather than failing against missing credentials.
+        stmt = (
             select(PublishTarget)
             .join(Article, Article.id == PublishTarget.article_id)
             .where(PublishTarget.status == TargetStatus.APPROVED)
             .where((Article.scheduled_at == None) | (Article.scheduled_at <= utcnow()))  # noqa: E711
             .order_by(PublishTarget.id)
-        ).first()
+        )
+        if unconfigured:
+            stmt = stmt.where(PublishTarget.platform.not_in(unconfigured))
+        target = session.exec(stmt).first()
         if target is None:
             return False
 
@@ -45,11 +52,13 @@ async def publish_one(session_factory, settings: Settings) -> bool:
         target.published_at = utcnow()
         session.commit()
 
-        siblings = session.exec(
-            select(PublishTarget).where(PublishTarget.article_id == article.id)
-        ).all()
-        done = {TargetStatus.PUBLISHED, TargetStatus.SKIPPED}
-        if all(t.status in done for t in siblings) and any(
+        siblings = effective_targets(
+            session.exec(
+                select(PublishTarget).where(PublishTarget.article_id == article.id)
+            ).all(),
+            unconfigured,
+        )
+        if all(t.status in DONE_STATUSES for t in siblings) and any(
             t.status == TargetStatus.PUBLISHED for t in siblings
         ):
             article.state = ArticleState.PUBLISHED

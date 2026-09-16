@@ -6,7 +6,7 @@ from telecast.models import Article, ArticleState, PublishTarget, TargetStatus
 from telecast.pipeline.llm import GeminiError, GeminiQuotaError
 from telecast.pipeline.runner import advance_one
 from telecast.publish import base as registry
-from tests.fakes import FakeGemini
+from tests.fakes import FakeGemini, StubPublisher
 
 
 @pytest.fixture
@@ -109,3 +109,22 @@ async def test_reenhance_preserves_edited_final_text(session_factory, dummy_plat
         a = s.get(Article, aid)
         assert a.enhanced_text == "regen"
         assert a.final_text == "my manual edit"
+
+
+async def test_targets_created_only_for_configured_platforms(session_factory, settings):
+    registry.clear()
+    registry.register(StubPublisher("telegram"))
+    registry.register(StubPublisher("wordpress", configured=False))
+    try:
+        with session_factory() as s:
+            a = _ingest(s)
+            a.state = ArticleState.ENHANCED
+            s.commit()
+            aid = a.id
+        assert await advance_one(session_factory, FakeGemini(), settings)
+        with session_factory() as s:
+            targets = s.exec(select(PublishTarget).where(PublishTarget.article_id == aid)).all()
+            assert {t.platform for t in targets} == {"telegram"}
+            assert s.get(Article, aid).state == ArticleState.PENDING_REVIEW
+    finally:
+        registry.clear()

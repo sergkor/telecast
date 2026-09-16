@@ -6,6 +6,7 @@ from sqlmodel import select
 
 from telecast.models import Article, ArticleState, MediaFile, PublishTarget, TargetStatus, utcnow
 from telecast.publish import base as registry
+from telecast.publish.recalc import effective_targets
 from telecast.publish.schedule import reschedule
 from telecast.web import auth
 from telecast.web.app import render
@@ -28,19 +29,25 @@ def _load(request, article_id: int):
 
 
 def _detail_ctx(request, session, article):
+    settings = request.app.state.settings
     media = session.exec(select(MediaFile).where(MediaFile.article_id == article.id)).all()
-    targets = session.exec(select(PublishTarget).where(PublishTarget.article_id == article.id)).all()
+    # Targets of plugins missing their config are hidden: they cannot be
+    # approved, so showing them would only be noise.
+    targets = effective_targets(
+        session.exec(select(PublishTarget).where(PublishTarget.article_id == article.id)).all(),
+        registry.unconfigured(settings),
+    )
     warnings = {}
     for t in targets:
         try:
             pub = registry.get(t.platform)
-            warnings[t.platform] = pub.validate(article, list(media), request.app.state.settings)
+            warnings[t.platform] = pub.validate(article, list(media), settings)
         except KeyError:
             warnings[t.platform] = [f"no publisher registered for {t.platform}"]
     missing = []
     if article.state in ADDABLE_STATES:
         have = {t.platform for t in targets}
-        missing = [p for p in registry.names() if p not in have]
+        missing = [p for p in registry.available(settings) if p not in have]
     return dict(article=article, media=media, targets=targets, warnings=warnings,
                 missing_platforms=missing,
                 publishing=any(t.status == TargetStatus.PUBLISHING for t in targets))
@@ -124,8 +131,8 @@ def discard(request: Request, article_id: int):
 def add_target(request: Request, article_id: int, platform: str = Form(...)):
     session, article = _load(request, article_id)
     try:
-        if platform not in registry.names():
-            raise HTTPException(400, f"unknown platform {platform}")
+        if platform not in registry.available(request.app.state.settings):
+            raise HTTPException(400, f"unknown or unconfigured platform {platform}")
         if article.state not in ADDABLE_STATES:
             raise HTTPException(400, f"cannot add targets in state {article.state.value}")
         exists = session.exec(
@@ -162,7 +169,7 @@ def approve(request: Request, target_id: int):
             if article.approved_at is None:
                 article.approved_at = utcnow()
             session.commit()
-            reschedule(session, delay=_delay(request))
+            _reschedule(request, session)
         aid = target.article_id
     finally:
         session.close()
@@ -171,6 +178,11 @@ def approve(request: Request, target_id: int):
 
 def _delay(request) -> timedelta:
     return timedelta(minutes=request.app.state.settings.publish_delay_minutes)
+
+
+def _reschedule(request, session) -> None:
+    reschedule(session, delay=_delay(request),
+               unconfigured=registry.unconfigured(request.app.state.settings))
 
 
 @action.post("/articles/{article_id}/publish_now")
@@ -209,7 +221,7 @@ def republish_target(request: Request, target_id: int):
             if article.approved_at is None:
                 article.approved_at = utcnow()
             session.commit()
-            reschedule(session, delay=_delay(request))
+            _reschedule(request, session)
         aid = target.article_id
     finally:
         session.close()
@@ -227,7 +239,7 @@ def retry_target(request: Request, target_id: int):
             if article.approved_at is None:
                 article.approved_at = utcnow()
             session.commit()
-            reschedule(session, delay=_delay(request))
+            _reschedule(request, session)
         aid = target.article_id
     finally:
         session.close()

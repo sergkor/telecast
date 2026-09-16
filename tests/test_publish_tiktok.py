@@ -71,3 +71,13 @@ def test_settings_tiktok_defaults(tmp_path):
     settings = Settings(_env_file=None, data_dir=tmp_path)
     assert settings.tiktok_privacy == "SELF_ONLY"
     assert settings.tiktok_token_path == tmp_path / "tiktok_token.json"
+
+
+def test_configured_requires_client_credentials_and_token_file(tmp_path):
+    pub = TikTokPublisher()
+    creds = dict(_env_file=None, data_dir=tmp_path,
+                 tiktok_client_key="k", tiktok_client_secret="s")
+    assert not pub.configured(Settings(**creds))
+    (tmp_path / "tiktok_token.json").write_text("{}")
+    assert pub.configured(Settings(**creds))
+    assert not pub.configured(Settings(_env_file=None, data_dir=tmp_path))

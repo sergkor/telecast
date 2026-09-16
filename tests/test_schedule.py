@@ -69,3 +69,20 @@ def test_published_targets_do_not_queue_article(session):
 
 def test_empty_queue_is_noop(session):
     assert reschedule(session, now=NOW) == 0
+
+
+def test_approved_target_of_unconfigured_plugin_takes_no_slot(session):
+    """A plugin that loses its config must not hold a publish slot and skew
+    the spread for the articles that can actually publish."""
+    stale = Article(source_channel="@n", source_message_id=99,
+                    state=ArticleState.PENDING_REVIEW, approved_at=NOW - timedelta(hours=1))
+    session.add(stale)
+    session.commit()
+    session.add(PublishTarget(article_id=stale.id, platform="wordpress",
+                              status=TargetStatus.APPROVED))
+    session.commit()
+    aid = _article(session, 1, approved_at=NOW)
+
+    assert reschedule(session, now=NOW, unconfigured={"wordpress"}) == 1
+    assert session.get(Article, stale.id).scheduled_at is None
+    assert session.get(Article, aid).scheduled_at == DB_FIRST

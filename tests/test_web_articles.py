@@ -6,6 +6,7 @@ from telecast.config import Settings
 from telecast.models import Article, ArticleState, PublishTarget, TargetStatus
 from telecast.publish import base as registry
 from telecast.web.app import create_app
+from tests.fakes import StubPublisher
 
 
 @pytest.fixture
@@ -112,20 +113,6 @@ def test_publish_now_clears_schedule(client, article, session_factory):
         assert s.get(Article, article).scheduled_at is None
 
 
-class StubPublisher:
-    def __init__(self, name):
-        self.name = name
-
-    def validate(self, article, media, settings):
-        return []
-
-    def adapt(self, article):
-        raise NotImplementedError
-
-    async def publish(self, article, media, adapted, settings):
-        raise NotImplementedError
-
-
 def _set_state(session_factory, article_id, state):
     with session_factory() as s:
         s.get(Article, article_id).state = state
@@ -184,3 +171,31 @@ def test_detail_hides_add_when_no_missing_platforms(client, article, session_fac
     _set_state(session_factory, article, ArticleState.PUBLISHED)
     r = client.get(f"/articles/{article}")
     assert "add_target" not in r.text
+
+
+def test_detail_hides_target_for_unconfigured_plugin(client, article, session_factory):
+    registry.register(StubPublisher("telegram"))
+    registry.register(StubPublisher("wordpress", configured=False))
+    with session_factory() as s:
+        s.add(PublishTarget(article_id=article, platform="wordpress"))
+        s.commit()
+    r = client.get(f"/articles/{article}")
+    assert "wordpress" not in r.text
+    assert "telegram" in r.text
+
+
+def test_detail_does_not_offer_unconfigured_plugin(client, article, session_factory):
+    registry.register(StubPublisher("telegram"))
+    registry.register(StubPublisher("wordpress", configured=False))
+    _set_state(session_factory, article, ArticleState.PUBLISHED)
+    r = client.get(f"/articles/{article}")
+    assert "add_target" not in r.text
+
+
+def test_add_target_rejects_unconfigured_platform(client, article, session_factory):
+    registry.register(StubPublisher("telegram"))
+    registry.register(StubPublisher("wordpress", configured=False))
+    _set_state(session_factory, article, ArticleState.PUBLISHED)
+    r = client.post(f"/articles/{article}/add_target",
+                    data={"platform": "wordpress", "csrf": _csrf(client)})
+    assert r.status_code == 400

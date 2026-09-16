@@ -20,6 +20,9 @@ class TelegramPublisher:
     def __init__(self, transport: httpx.AsyncBaseTransport | None = None):
         self._transport = transport
 
+    def configured(self, settings: Settings) -> bool:
+        return bool(settings.bot_token and settings.dest_channel)
+
     def validate(self, article: Article, media: list[MediaFile], settings: Settings) -> list[str]:
         warnings = []
         if not media:

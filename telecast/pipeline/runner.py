@@ -68,14 +68,16 @@ async def advance_one(session_factory, llm, settings: Settings) -> bool:
             complete(session, article, ArticleState.ENHANCED, **fields)
             return True
 
-        # ENHANCED: create publish targets (idempotent) and open for review
+        # ENHANCED: create publish targets (idempotent) and open for review.
+        # Plugins missing their config get no target — nothing could
+        # approve or publish one.
         existing = {
             t.platform
             for t in session.exec(
                 select(PublishTarget).where(PublishTarget.article_id == article.id)
             ).all()
         }
-        for platform in registry.names():
+        for platform in registry.available(settings):
             if platform not in existing:
                 session.add(PublishTarget(article_id=article.id, platform=platform))
         complete(session, article, ArticleState.PENDING_REVIEW)

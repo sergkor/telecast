@@ -183,6 +183,35 @@ Re-queued targets flow through the normal scheduler and publish worker;
 `APPROVED`/`PUBLISHING` targets are never re-queued, and the old
 `external_url` is overwritten on success.
 
+### Plugin availability (added 2026-09-16)
+
+Each publisher declares `configured(settings) -> bool`, and the registry
+exposes `available(settings)` / `unconfigured(settings)`. A registered
+publisher missing its credentials is excluded everywhere it would
+otherwise stall work:
+
+- the pipeline creates no `PublishTarget` for it when an article reaches
+  `PENDING_REVIEW`;
+- its existing targets are hidden in the queue and on the article page,
+  and it is not offered by "Add <platform>" or the republish picker
+  (`add_target` and `/republish` reject it);
+- the publish worker never claims its `APPROVED` targets, so a plugin
+  losing its config leaves them waiting rather than failing, and
+  `reschedule` gives those targets no slot in the 24h spread;
+- `publish/recalc.py:effective_targets` drops it from the sibling set
+  that decides `PUBLISHED`, so it cannot hold an article in review.
+
+A publisher without a `configured` method counts as configured.
+
+`publish/recalc.py:recompute_all(session, settings)` re-derives this on
+demand — `POST /settings/recalculate`, exposed as the **Recalculate
+state** button under Settings → Publishing plugins. It backfills a
+`PENDING` target for every newly configured plugin on articles still in
+`PENDING_REVIEW`, then promotes each article whose effective targets are
+all `PUBLISHED`/`SKIPPED` (at least one `PUBLISHED`). It only promotes:
+a `PUBLISHED` article is never dragged back into review, and discarded
+or mid-pipeline articles are untouched.
+
 ## Web app
 
 Server-rendered Jinja2 + htmx; no build step. All state-changing routes

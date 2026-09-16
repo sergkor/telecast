@@ -20,6 +20,21 @@ Each article gets a per-platform approve/skip in the review UI. Adding a
 platform = new module in `telecast/publish/` implementing the `Publisher`
 protocol + a `registry.register(...)` call in `telecast/main.py`.
 
+## Plugins without config
+
+A publisher whose credentials are missing is inert: it gets no publish
+target for new articles, its existing targets are hidden from the queue and
+the article page, and it is ignored when deciding whether an article is
+fully published. So an article never waits on a platform you have not set
+up. Each publisher decides this itself via `configured(settings)`.
+
+**Settings → Publishing plugins** lists every registered plugin as
+*configured* / *not configured*, with a **Recalculate state** button. Press
+it after changing `.env` (or running an `auth` command): it gives newly
+configured plugins a `PENDING` target on every article still in review, then
+promotes to `PUBLISHED` any article whose available targets are all done. It
+never pulls a published article back into review.
+
 ## Republishing
 
 Published articles can be sent to a platform again (e.g. after switching

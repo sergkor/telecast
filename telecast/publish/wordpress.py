@@ -57,6 +57,10 @@ class WordPressPublisher:
     def __init__(self, upload_fn: Callable | None = None):
         self._upload_fn = upload_fn or _real_upload
 
+    def configured(self, settings: Settings) -> bool:
+        return bool(settings.wordpress_url and settings.wordpress_username
+                    and settings.wordpress_app_password)
+
     def validate(self, article: Article, media: list[MediaFile], settings: Settings) -> list[str]:
         warnings = []
         if not media:

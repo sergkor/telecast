@@ -65,3 +65,11 @@ def test_validate_blocks_without_token(tmp_path):
     settings = Settings(_env_file=None, data_dir=tmp_path)
     warnings = pub.validate(make_article(), [MediaFile(article_id=1, file_path="v.mp4")], settings)
     assert any("token" in w.lower() for w in warnings)
+
+
+def test_configured_requires_oauth_token_file(tmp_path):
+    pub = YouTubePublisher()
+    settings = Settings(_env_file=None, data_dir=tmp_path)
+    assert not pub.configured(settings)
+    settings.youtube_token_path.write_text("{}")
+    assert pub.configured(settings)
