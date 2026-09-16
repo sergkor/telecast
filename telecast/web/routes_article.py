@@ -198,6 +198,24 @@ def skip(request: Request, target_id: int):
     return RedirectResponse(f"/articles/{aid}", status_code=303)
 
 
+@action.post("/targets/{target_id}/republish")
+def republish_target(request: Request, target_id: int):
+    session, target = _target(request, target_id)
+    try:
+        if target.status == TargetStatus.PUBLISHED:
+            target.status = TargetStatus.APPROVED
+            target.error = None
+            article = session.get(Article, target.article_id)
+            if article.approved_at is None:
+                article.approved_at = utcnow()
+            session.commit()
+            reschedule(session, delay=_delay(request))
+        aid = target.article_id
+    finally:
+        session.close()
+    return RedirectResponse(f"/articles/{aid}", status_code=303)
+
+
 @action.post("/targets/{target_id}/retry")
 def retry_target(request: Request, target_id: int):
     session, target = _target(request, target_id)

@@ -27,6 +27,10 @@ class Settings(BaseSettings):
     pinterest_app_id: str = ""
     pinterest_app_secret: str = ""
     pinterest_board_id: str = ""
+    wordpress_url: str = ""
+    wordpress_username: str = ""
+    wordpress_app_password: str = ""
+    wordpress_status: str = "publish"
     enhance_prompt_path: Path = Path("prompts/enhance.md")
     stale_claim_minutes: int = 15
     recent_posts: int = 5

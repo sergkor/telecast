@@ -25,6 +25,10 @@
       {% if t.status.value == "FAILED" %}
         <button formaction="/targets/{{ t.id }}/retry">Retry</button>
       {% endif %}
+      {% if t.status.value == "PUBLISHED" %}
+        <button formaction="/targets/{{ t.id }}/republish"
+                onclick="return confirm('Publish this video to {{ t.platform }} again?')">Republish</button>
+      {% endif %}
     </form>
   </div>
   {% endfor %}

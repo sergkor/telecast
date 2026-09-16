@@ -12,6 +12,7 @@ from telecast.publish.telegram import TelegramPublisher
 from telecast.publish.worker import publish_loop
 from telecast.publish.pinterest import PinterestPublisher
 from telecast.publish.tiktok import TikTokPublisher
+from telecast.publish.wordpress import WordPressPublisher
 from telecast.publish.youtube import YouTubePublisher
 from telecast.web.app import create_app
 
@@ -36,6 +37,7 @@ def build():
     registry.register(YouTubePublisher(channel_url=settings.telegram_channel_url))
     registry.register(TikTokPublisher())
     registry.register(PinterestPublisher())
+    registry.register(WordPressPublisher())
 
     stop_event = asyncio.Event()
 

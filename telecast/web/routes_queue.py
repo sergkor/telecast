@@ -1,12 +1,18 @@
-from fastapi import APIRouter, Depends, Request
-from fastapi.responses import HTMLResponse
+from datetime import timedelta
+
+from fastapi import APIRouter, Depends, Form, HTTPException, Request
+from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlmodel import select
 
 from telecast.models import Article, FAILED_STATES, ArticleState, MediaFile, PublishTarget
+from telecast.publish import base as registry
+from telecast.publish.republish import queue_republish
+from telecast.publish.schedule import reschedule
 from telecast.web import auth
 from telecast.web.app import render
 
 router = APIRouter(dependencies=[Depends(auth.require_login)])
+action = APIRouter(dependencies=[Depends(auth.require_csrf)])
 
 TABS = {
     "pending": [ArticleState.PENDING_REVIEW],
@@ -33,4 +39,22 @@ def queue(request: Request, tab: str = "pending"):
             ).all()
             rows.append({"article": a, "media": media, "targets": targets})
     return render(request, "queue.html", rows=rows, tab=tab,
-                  tabs=["pending", "all", "failed", "published", "discarded"])
+                  tabs=["pending", "all", "failed", "published", "discarded"],
+                  platforms=registry.names())
+
+
+@action.post("/republish")
+def republish(request: Request, article_ids: list[int] = Form([]),
+              platform: str = Form("youtube")):
+    if platform not in registry.names():
+        raise HTTPException(400, f"unknown platform {platform}")
+    if article_ids:
+        with request.app.state.session_factory() as session:
+            queued = queue_republish(session, article_ids, platform)
+            if queued:
+                delay = timedelta(minutes=request.app.state.settings.publish_delay_minutes)
+                reschedule(session, delay=delay)
+    return RedirectResponse("/?tab=published", status_code=303)
+
+
+router.include_router(action)

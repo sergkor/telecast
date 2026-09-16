@@ -167,6 +167,22 @@ ingestion; oversized media is flagged in the UI as "may fail on
 Target status transitions `APPROVED → PUBLISHING → PUBLISHED` with
 `external_url` stored; failure → `FAILED` + error + retry button.
 
+### Republishing (added 2026-09-15)
+
+Articles in state `PUBLISHED` can be re-queued for any platform — e.g.
+re-uploading everything to a new YouTube channel:
+
+- **Bulk:** the Published tab shows checkboxes (with select-all) and a
+  platform picker; `POST /republish` resets the selected articles'
+  targets for that platform to `APPROVED` (creating missing targets) via
+  `publish/republish.py:queue_republish`.
+- **Per target:** `POST /targets/{id}/republish` re-queues a single
+  `PUBLISHED` target from the article detail page.
+
+Re-queued targets flow through the normal scheduler and publish worker;
+`APPROVED`/`PUBLISHING` targets are never re-queued, and the old
+`external_url` is overwritten on success.
+
 ## Web app
 
 Server-rendered Jinja2 + htmx; no build step. All state-changing routes

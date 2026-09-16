@@ -5,11 +5,19 @@
     <a href="/?tab={{ t }}" {% if t == tab %}style="font-weight:bold"{% endif %}>{{ t }}</a>{% if not loop.last %} · {% endif %}
   {% endfor %}
 </div>
+{% set selectable = tab == "published" and rows %}
+{% if selectable %}<form method="post" action="/republish">
+<input type="hidden" name="csrf" value="{{ csrf }}">{% endif %}
 <div class="card">
   <table>
-    <tr><th></th><th>Title</th><th>Source</th><th>State</th><th>Targets</th><th>Created</th></tr>
+    <tr>
+      {% if selectable %}<th><input type="checkbox"
+        onclick="document.querySelectorAll('input[name=article_ids]').forEach(c => c.checked = this.checked)"></th>{% endif %}
+      <th></th><th>Title</th><th>Source</th><th>State</th><th>Targets</th><th>Created</th>
+    </tr>
     {% for row in rows %}
     <tr>
+      {% if selectable %}<td><input type="checkbox" name="article_ids" value="{{ row.article.id }}"></td>{% endif %}
       <td>
         {% set thumbs = row.media | selectattr("thumb_path") | list %}
         {% if thumbs %}<img src="/media/{{ thumbs[0].thumb_path.split('/')[-1] }}" width="72">{% endif %}
@@ -26,8 +34,18 @@
       <td>{{ row.article.created_at.strftime("%m-%d %H:%M") }}</td>
     </tr>
     {% else %}
-    <tr><td colspan="6">Nothing here.</td></tr>
+    <tr><td colspan="{{ 7 if selectable else 6 }}">Nothing here.</td></tr>
     {% endfor %}
   </table>
+  {% if selectable %}
+  <p>
+    Republish selected to
+    <select name="platform">
+      {% for p in platforms %}<option value="{{ p }}" {% if p == "youtube" %}selected{% endif %}>{{ p }}</option>{% endfor %}
+    </select>
+    <button class="primary">Republish</button>
+  </p>
+  {% endif %}
 </div>
+{% if selectable %}</form>{% endif %}
 {% endblock %}
