@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import select
@@ -86,9 +88,10 @@ def test_approve_sets_approved_at_and_schedules(client, article, session_factory
         assert a.scheduled_at is not None
 
 
-def test_new_approval_resets_schedule_oldest_goes_now(client, article, session_factory):
+def test_new_approval_appends_an_interval_after_the_queue(client, article, session_factory):
     client.post("/targets/1/approve", data={"csrf": _csrf(client)})
     with session_factory() as s:
+        first_slot = s.get(Article, article).scheduled_at
         a2 = Article(source_channel="@n", source_message_id=2,
                      state=ArticleState.PENDING_REVIEW, title="T2")
         s.add(a2)
@@ -101,9 +104,21 @@ def test_new_approval_resets_schedule_oldest_goes_now(client, article, session_f
     with session_factory() as s:
         a1 = s.get(Article, article)
         a2 = s.get(Article, a2_id)
-        assert a1.scheduled_at is not None and a2.scheduled_at is not None
-        # oldest approval gets the immediate slot; newer one is 12h later
-        assert a1.scheduled_at < a2.scheduled_at
+        # the queued article keeps its slot; the new one lands one interval behind
+        assert a1.scheduled_at == first_slot
+        assert a2.scheduled_at - a1.scheduled_at == timedelta(hours=6)
+
+
+def test_second_target_on_queued_article_keeps_its_slot(client, article, session_factory):
+    with session_factory() as s:
+        s.add(PublishTarget(article_id=article, platform="telegram2"))
+        s.commit()
+    client.post("/targets/1/approve", data={"csrf": _csrf(client)})
+    with session_factory() as s:
+        slot = s.get(Article, article).scheduled_at
+    client.post("/targets/2/approve", data={"csrf": _csrf(client)})
+    with session_factory() as s:
+        assert s.get(Article, article).scheduled_at == slot
 
 
 def test_publish_now_clears_schedule(client, article, session_factory):

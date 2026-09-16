@@ -45,9 +45,25 @@ YouTube channels):
   platform get one created.
 - **Single:** article page → **Republish** button on a published target.
 
-Republished targets go back through the normal scheduler (spread over 24h),
-so a large batch won't blow the YouTube daily upload quota all at once —
-but note the default quota only allows ~6 uploads/day.
+Republished targets go back through the normal publish schedule, so a large
+batch won't blow the YouTube daily upload quota all at once — but note the
+default quota only allows ~6 uploads/day.
+
+## Publish schedule
+
+Approving a target queues its article rather than publishing immediately:
+
+- **Queue empty** → the article publishes `TELECAST_PUBLISH_DELAY_MINUTES`
+  from now (default 5), leaving a window to undo a mistaken approval.
+- **Queue not empty** → it publishes `TELECAST_PUBLISH_INTERVAL_HOURS`
+  (default 6) after the last article already in the queue.
+
+Slots are append-only: once assigned, an article's time never moves, so
+approving something else — or approving a second platform on the same
+article — cannot shuffle what you already saw. A queue left unpublished
+through a downtime restarts its spacing from now instead of firing the whole
+backlog at once. The queue shows each pending slot as a `⏱` chip, and the
+article page has **Publish now** to jump the queue.
 
 ## Setup
 

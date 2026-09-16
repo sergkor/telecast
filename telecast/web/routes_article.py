@@ -7,7 +7,7 @@ from sqlmodel import select
 from telecast.models import Article, ArticleState, MediaFile, PublishTarget, TargetStatus, utcnow
 from telecast.publish import base as registry
 from telecast.publish.recalc import effective_targets
-from telecast.publish.schedule import reschedule
+from telecast.publish.schedule import schedule_pending
 from telecast.web import auth
 from telecast.web.app import render
 
@@ -169,20 +169,19 @@ def approve(request: Request, target_id: int):
             if article.approved_at is None:
                 article.approved_at = utcnow()
             session.commit()
-            _reschedule(request, session)
+            _enqueue(request, session)
         aid = target.article_id
     finally:
         session.close()
     return RedirectResponse(f"/articles/{aid}", status_code=303)
 
 
-def _delay(request) -> timedelta:
-    return timedelta(minutes=request.app.state.settings.publish_delay_minutes)
-
-
-def _reschedule(request, session) -> None:
-    reschedule(session, delay=_delay(request),
-               unconfigured=registry.unconfigured(request.app.state.settings))
+def _enqueue(request, session) -> None:
+    settings = request.app.state.settings
+    schedule_pending(session,
+                     delay=timedelta(minutes=settings.publish_delay_minutes),
+                     interval=timedelta(hours=settings.publish_interval_hours),
+                     unconfigured=registry.unconfigured(settings))
 
 
 @action.post("/articles/{article_id}/publish_now")
@@ -221,7 +220,7 @@ def republish_target(request: Request, target_id: int):
             if article.approved_at is None:
                 article.approved_at = utcnow()
             session.commit()
-            _reschedule(request, session)
+            _enqueue(request, session)
         aid = target.article_id
     finally:
         session.close()
@@ -239,7 +238,7 @@ def retry_target(request: Request, target_id: int):
             if article.approved_at is None:
                 article.approved_at = utcnow()
             session.commit()
-            _reschedule(request, session)
+            _enqueue(request, session)
         aid = target.article_id
     finally:
         session.close()

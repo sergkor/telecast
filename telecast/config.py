@@ -35,6 +35,7 @@ class Settings(BaseSettings):
     stale_claim_minutes: int = 15
     recent_posts: int = 5
     publish_delay_minutes: int = 5
+    publish_interval_hours: int = 6
 
     @property
     def source_channel_list(self) -> list[str | int]:

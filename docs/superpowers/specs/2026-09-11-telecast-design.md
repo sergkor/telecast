@@ -167,6 +167,35 @@ ingestion; oversized media is flagged in the UI as "may fail on
 Target status transitions `APPROVED → PUBLISHING → PUBLISHED` with
 `external_url` stored; failure → `FAILED` + error + retry button.
 
+### Publish schedule (revised 2026-09-16)
+
+Approval queues an article instead of publishing it at once.
+`publish/schedule.py:schedule_pending` assigns a slot to every queued
+article that has none, oldest approval first:
+
+```
+tail  = latest scheduled_at among queued articles that already have a slot
+slot  = now + publish_delay_minutes                       if tail is None
+        max(now + publish_delay_minutes, tail + publish_interval_hours)  otherwise
+```
+
+Spacing is therefore fixed (`TELECAST_PUBLISH_INTERVAL_HOURS`, default 6)
+rather than an even spread across a fixed window, and the queue grows at
+the tail. Properties this buys:
+
+- **Append-only** — an assigned slot is never rewritten, so approving
+  another article, or a second platform on the same article, cannot move
+  a time the review UI has already shown.
+- **Overdue-safe** — the `max(...)` means a queue that sat through a
+  downtime restarts spacing from now instead of publishing the backlog
+  back to back.
+- **Batch-aware** — one call schedules a bulk republish as N successive
+  slots, because each article it places becomes the next one's tail.
+
+An article with an approved target on an unconfigured plugin is not
+queued and does not anchor the tail. `publish_now` clears `scheduled_at`,
+which the worker reads as "due".
+
 ### Republishing (added 2026-09-15)
 
 Articles in state `PUBLISHED` can be re-queued for any platform — e.g.
@@ -197,7 +226,7 @@ otherwise stall work:
   (`add_target` and `/republish` reject it);
 - the publish worker never claims its `APPROVED` targets, so a plugin
   losing its config leaves them waiting rather than failing, and
-  `reschedule` gives those targets no slot in the 24h spread;
+  `schedule_pending` gives those targets no publish slot;
 - `publish/recalc.py:effective_targets` drops it from the sibling set
   that decides `PUBLISHED`, so it cannot hold an article in review.
 

@@ -8,7 +8,7 @@ from telecast.models import Article, FAILED_STATES, ArticleState, MediaFile, Pub
 from telecast.publish import base as registry
 from telecast.publish.recalc import effective_targets
 from telecast.publish.republish import queue_republish
-from telecast.publish.schedule import reschedule
+from telecast.publish.schedule import schedule_pending
 from telecast.web import auth
 from telecast.web.app import render
 
@@ -59,9 +59,12 @@ def republish(request: Request, article_ids: list[int] = Form([]),
         with request.app.state.session_factory() as session:
             queued = queue_republish(session, article_ids, platform)
             if queued:
-                delay = timedelta(minutes=settings.publish_delay_minutes)
-                reschedule(session, delay=delay,
-                           unconfigured=registry.unconfigured(settings))
+                schedule_pending(
+                    session,
+                    delay=timedelta(minutes=settings.publish_delay_minutes),
+                    interval=timedelta(hours=settings.publish_interval_hours),
+                    unconfigured=registry.unconfigured(settings),
+                )
     return RedirectResponse("/?tab=published", status_code=303)
 
 
