@@ -5,7 +5,7 @@ import httpx
 
 from telecast.config import Settings
 from telecast.models import Article, MediaFile
-from telecast.publish.base import Adapted, truncate
+from telecast.publish.base import Adapted, Context, truncate
 
 CAPTION_LIMIT = 1024
 
@@ -34,7 +34,7 @@ class TelegramPublisher:
                 warnings.append(f"video duration {m.duration_s:.0f}s exceeds cap — may fail on telegram")
         return warnings
 
-    def adapt(self, article: Article) -> Adapted:
+    def adapt(self, article: Article, context: Context | None = None) -> Adapted:
         title = article.title or ""
         body = article.final_text or ""
         caption = f"{title}\n\n{body}".strip()

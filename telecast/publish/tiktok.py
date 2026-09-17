@@ -5,7 +5,7 @@ from typing import Callable
 
 from telecast.config import Settings
 from telecast.models import Article, MediaFile
-from telecast.publish.base import Adapted, truncate
+from telecast.publish.base import Adapted, Context, truncate
 from telecast.publish.youtube import pick_video
 
 CAPTION_LIMIT = 2200
@@ -117,7 +117,7 @@ class TikTokPublisher:
                 warnings.append(f"video duration {m.duration_s:.0f}s exceeds cap — may fail on tiktok")
         return warnings
 
-    def adapt(self, article: Article) -> Adapted:
+    def adapt(self, article: Article, context: Context | None = None) -> Adapted:
         # TikTok has a single caption field: title, body, and hashtags
         # collapse into it.
         parts = [article.title, article.final_text, article.hashtags]

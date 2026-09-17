@@ -6,7 +6,7 @@ from typing import Callable
 
 from telecast.config import Settings
 from telecast.models import Article, MediaFile
-from telecast.publish.base import Adapted, truncate
+from telecast.publish.base import Adapted, Context, truncate
 from telecast.publish.youtube import pick_video
 
 TITLE_LIMIT = 100
@@ -114,7 +114,7 @@ class PinterestPublisher:
                 warnings.append(f"video duration {m.duration_s:.0f}s exceeds cap — may fail on pinterest")
         return warnings
 
-    def adapt(self, article: Article) -> Adapted:
+    def adapt(self, article: Article, context: Context | None = None) -> Adapted:
         parts = [article.final_text, article.hashtags]
         description = "\n\n".join(p.strip() for p in parts if p and p.strip())
         return Adapted(title=truncate(article.title or "", TITLE_LIMIT),

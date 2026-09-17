@@ -4,7 +4,7 @@ from typing import Callable
 
 from telecast.config import Settings
 from telecast.models import Article, MediaFile
-from telecast.publish.base import Adapted, truncate
+from telecast.publish.base import Adapted, Context, truncate
 
 TITLE_LIMIT = 100
 SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
@@ -61,7 +61,7 @@ class YouTubePublisher:
                 warnings.append(f"video duration {m.duration_s:.0f}s exceeds cap — may fail on youtube")
         return warnings
 
-    def adapt(self, article: Article) -> Adapted:
+    def adapt(self, article: Article, context: Context | None = None) -> Adapted:
         title = truncate(article.title or article.final_text or "Video", TITLE_LIMIT)
         body = (article.final_text or "").strip()
         if article.hashtags:
