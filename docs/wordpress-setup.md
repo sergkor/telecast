@@ -70,6 +70,11 @@ curl -u 'telecast-bot:abcd efgh ijkl mnop qrst uvwx' \
   https://blog.example.com/wp-json/wp/v2/users/me
 ```
 
-A JSON user object means auth works. Then approve an article for both
+A JSON user object means auth works. The Telecast settings page does the
+same check behind **Validate connection** on the `wordpress` row: it reports
+the user it connected as and whether that user may publish posts, without
+writing anything to the site.
+
+Then approve an article for both
 `youtube` and `wordpress` in the Telecast review UI — the post appears
 seconds after the YouTube upload completes.

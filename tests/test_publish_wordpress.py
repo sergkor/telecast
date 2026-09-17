@@ -163,3 +163,110 @@ def test_configured_requires_url_username_and_app_password(tmp_path):
     assert pub.configured(make_settings(tmp_path))
     assert not pub.configured(make_settings(tmp_path, wordpress_app_password=""))
     assert not pub.configured(Settings(_env_file=None, data_dir=tmp_path))
+
+
+# --- connection check -------------------------------------------------
+
+def mock_client(handler, **kw):
+    import httpx
+    return httpx.Client(transport=httpx.MockTransport(handler), **kw)
+
+
+def users_me_handler(payload, status=200):
+    import httpx
+
+    def handler(request):
+        assert request.url.path == "/wp-json/wp/v2/users/me"
+        assert request.url.params.get("context") == "edit"
+        return httpx.Response(status, json=payload)
+
+    return handler
+
+
+def test_check_connection_reports_the_user_and_publish_capability(tmp_path):
+    from telecast.publish.wordpress import check_connection
+
+    client = mock_client(users_me_handler(
+        {"name": "telecast-bot", "capabilities": {"publish_posts": True}}))
+    result = check_connection(make_settings(tmp_path), client=client)
+    assert result.ok
+    assert "telecast-bot" in result.message
+    assert "publish" in result.message.lower()
+
+
+def test_check_connection_fails_when_the_user_cannot_publish(tmp_path):
+    from telecast.publish.wordpress import check_connection
+
+    client = mock_client(users_me_handler(
+        {"name": "reader", "capabilities": {"read": True}}))
+    result = check_connection(make_settings(tmp_path), client=client)
+    assert not result.ok
+    assert "reader" in result.message
+    assert "cannot publish" in result.message.lower()
+
+
+def test_check_connection_reports_rejected_credentials(tmp_path):
+    from telecast.publish.wordpress import check_connection
+
+    client = mock_client(users_me_handler({"code": "incorrect_password"}, status=401))
+    result = check_connection(make_settings(tmp_path), client=client)
+    assert not result.ok
+    assert "credentials" in result.message.lower()
+
+
+def test_check_connection_reports_a_missing_rest_api(tmp_path):
+    from telecast.publish.wordpress import check_connection
+
+    client = mock_client(users_me_handler({}, status=404))
+    result = check_connection(make_settings(tmp_path), client=client)
+    assert not result.ok
+    assert "rest api" in result.message.lower()
+    assert "permalink" in result.message.lower()
+
+
+def test_check_connection_reports_other_http_errors(tmp_path):
+    from telecast.publish.wordpress import check_connection
+
+    client = mock_client(users_me_handler({}, status=503))
+    result = check_connection(make_settings(tmp_path), client=client)
+    assert not result.ok
+    assert "503" in result.message
+
+
+def test_check_connection_reports_an_unreachable_site(tmp_path):
+    import httpx
+
+    from telecast.publish.wordpress import check_connection
+
+    def handler(request):
+        raise httpx.ConnectError("name resolution failed", request=request)
+
+    result = check_connection(make_settings(tmp_path), client=mock_client(handler))
+    assert not result.ok
+    assert "blog.example.com" in result.message
+    assert "reach" in result.message.lower()
+
+
+def test_check_connection_says_so_when_unconfigured(tmp_path):
+    from telecast.publish.wordpress import check_connection
+
+    result = check_connection(Settings(_env_file=None, data_dir=tmp_path))
+    assert not result.ok
+    assert "not configured" in result.message.lower()
+
+
+def test_check_connection_warns_about_a_plain_http_url(tmp_path):
+    from telecast.publish.wordpress import check_connection
+
+    client = mock_client(users_me_handler(
+        {"name": "bot", "capabilities": {"publish_posts": True}}))
+    settings = make_settings(tmp_path, wordpress_url="http://blog.example.com")
+    result = check_connection(settings, client=client)
+    assert "https" in result.message.lower()
+
+
+def test_publisher_exposes_the_connection_check(tmp_path):
+    client = mock_client(users_me_handler(
+        {"name": "bot", "capabilities": {"publish_posts": True}}))
+    result = make_pub().check_connection(make_settings(tmp_path), client=client)
+    assert result.ok

@@ -77,3 +77,87 @@ def test_recalculate_promotes_stalled_article(client, session_factory):
 def test_recalculate_requires_csrf(client):
     r = client.post("/settings/recalculate", data={})
     assert r.status_code == 403
+
+
+# --- plugin connection check ------------------------------------------
+
+class CheckablePublisher(StubPublisher):
+    """Stub exposing the optional `check_connection` hook."""
+
+    def __init__(self, name, result, **kw):
+        super().__init__(name, **kw)
+        self._result = result
+        self.calls = 0
+
+    def check_connection(self, settings):
+        self.calls += 1
+        return self._result
+
+
+def post_validate(client, plugin):
+    return client.post(f"/settings/validate/{plugin}",
+                       data={"csrf": client.cookies["telecast_csrf"]},
+                       follow_redirects=True)
+
+
+def test_validate_shows_the_check_result(client):
+    from telecast.publish.wordpress import CheckResult
+
+    pub = CheckablePublisher("wordpress", CheckResult(True, "connected as telecast-bot"))
+    registry.clear()
+    registry.register(pub)
+    try:
+        r = post_validate(client, "wordpress")
+        assert r.status_code == 200
+        assert pub.calls == 1
+        assert "connected as telecast-bot" in r.text
+    finally:
+        registry.clear()
+
+
+def test_validate_shows_a_failure_message(client):
+    from telecast.publish.wordpress import CheckResult
+
+    registry.clear()
+    registry.register(CheckablePublisher("wordpress",
+                                         CheckResult(False, "credentials rejected")))
+    try:
+        assert "credentials rejected" in post_validate(client, "wordpress").text
+    finally:
+        registry.clear()
+
+
+def test_validate_reports_a_plugin_without_a_check(client):
+    registry.clear()
+    registry.register(StubPublisher("telegram"))
+    try:
+        assert "no connection check" in post_validate(client, "telegram").text
+    finally:
+        registry.clear()
+
+
+def test_validate_reports_an_unknown_plugin(client):
+    registry.clear()
+    try:
+        assert "unknown plugin" in post_validate(client, "nope").text
+    finally:
+        registry.clear()
+
+
+def test_validate_requires_csrf(client):
+    r = client.post("/settings/validate/wordpress", data={})
+    assert r.status_code == 403
+
+
+def test_settings_page_offers_validate_only_for_checkable_plugins(client):
+    from telecast.publish.wordpress import CheckResult
+
+    registry.clear()
+    registry.register(CheckablePublisher("wordpress", CheckResult(True, "ok")))
+    registry.register(StubPublisher("telegram"))
+    try:
+        text = client.get("/settings").text
+        assert "/settings/validate/wordpress" in text
+        assert "/settings/validate/telegram" not in text
+    finally:
+        registry.clear()

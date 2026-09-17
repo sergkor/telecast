@@ -4,7 +4,11 @@
   <p>{% for c in source_channels %}{{ c }}{% if not loop.last %}, {% endif %}{% endfor %}</p>
   <h3>Destination</h3><p>{{ dest_channel }}</p></div>
 <div class="card"><h3>Publishing plugins</h3>
-  <table>{% for name, status in plugins.items() %}<tr><td>{{ name }}</td><td>{{ status }}</td></tr>{% endfor %}</table>
+  <table>{% for name, status in plugins.items() %}<tr><td>{{ name }}</td><td>{{ status }}</td>
+    <td>{% if name in checkable %}<form method="post" action="/settings/validate/{{ name }}">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <button>Validate connection</button></form>{% endif %}</td></tr>{% endfor %}</table>
+  {% if checked %}<p>{{ checked }}</p>{% endif %}
   <p>Plugins without config are hidden from review and ignored when deciding
      whether an article is fully published.</p>
   <form method="post" action="/settings/recalculate">

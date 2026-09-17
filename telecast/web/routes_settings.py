@@ -1,3 +1,5 @@
+from urllib.parse import quote
+
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
@@ -11,7 +13,8 @@ action = APIRouter(dependencies=[Depends(auth.require_csrf)])
 
 
 @router.get("/settings", response_class=HTMLResponse)
-def settings_page(request: Request, recalculated: str | None = None):
+def settings_page(request: Request, recalculated: str | None = None,
+                  checked: str | None = None):
     s = request.app.state.settings
     try:
         prompt = s.enhance_prompt_path.read_text(encoding="utf-8")
@@ -28,10 +31,13 @@ def settings_page(request: Request, recalculated: str | None = None):
         name: "configured" if name in available else "not configured"
         for name in registry.names()
     }
+    checkable = {n for n in registry.names()
+                 if hasattr(registry.get(n), "check_connection")}
     return render(request, "settings.html",
                   source_channels=s.source_channel_list,
                   dest_channel=s.dest_channel, prompt=prompt, health=health,
-                  plugins=plugins, recalculated=recalculated)
+                  plugins=plugins, checkable=checkable,
+                  recalculated=recalculated, checked=checked)
 
 
 @action.post("/settings/recalculate")
@@ -45,6 +51,24 @@ def recalculate(request: Request):
     summary = (f"{result['articles_published']} article(s) published, "
                f"{result['targets_added']} target(s) added")
     return RedirectResponse(f"/settings?recalculated={summary}", status_code=303)
+
+
+@action.post("/settings/validate/{plugin}")
+def validate_plugin(request: Request, plugin: str):
+    """Ask a plugin to talk to its platform — credentials that merely exist
+    are not credentials that work, and the answer belongs here rather than in
+    a failed publish hours later. Sync on purpose: FastAPI runs it in a
+    worker thread, so the network call does not block the event loop."""
+    try:
+        publisher = registry.get(plugin)
+    except KeyError:
+        message = "unknown plugin"
+    else:
+        check = getattr(publisher, "check_connection", None)
+        message = (check(request.app.state.settings).message if check
+                   else "no connection check available")
+    return RedirectResponse(f"/settings?checked={quote(f'{plugin}: {message}')}",
+                            status_code=303)
 
 
 router.include_router(action)
