@@ -4,7 +4,7 @@ from sqlmodel import select
 from telecast.config import Settings
 from telecast.models import Article, ArticleState, PublishTarget, TargetStatus
 from telecast.pipeline.llm import GeminiError, GeminiQuotaError
-from telecast.pipeline.runner import advance_one
+from telecast.pipeline.runner import advance_one, count_workable, drain
 from telecast.publish import base as registry
 from tests.fakes import FakeGemini, StubPublisher
 
@@ -128,3 +128,68 @@ async def test_targets_created_only_for_configured_platforms(session_factory, se
             assert s.get(Article, aid).state == ArticleState.PENDING_REVIEW
     finally:
         registry.clear()
+
+
+# --- manual drain -----------------------------------------------------
+
+async def test_count_workable_counts_only_unfinished_articles(session_factory, settings):
+    states = [ArticleState.INGESTED, ArticleState.TRANSLATED, ArticleState.ENHANCED,
+              ArticleState.PENDING_REVIEW, ArticleState.FAILED_TRANSLATE]
+    with session_factory() as s:
+        for mid, state in enumerate(states, start=1):
+            _ingest(s, mid=mid).state = state
+        s.commit()
+    with session_factory() as s:
+        assert count_workable(s) == 3
+
+
+async def test_count_workable_is_zero_on_an_idle_queue(session_factory, settings):
+    with session_factory() as s:
+        assert count_workable(s) == 0
+
+
+async def test_drain_advances_every_stuck_article_to_review(session_factory,
+                                                            dummy_platforms, settings):
+    with session_factory() as s:
+        first = _ingest(s, mid=1).id
+        stalled = _ingest(s, mid=2)
+        stalled.state = ArticleState.TRANSLATED
+        stalled.translated_text = "already translated"
+        s.commit()
+        second = stalled.id
+    llm = FakeGemini(responses=[
+        {"detected_language": "uk", "translated_text": "tr"},
+        {"title": "T1", "article": "e1", "hashtags": []},
+        {"title": "T2", "article": "e2", "hashtags": []},
+    ])
+    # 3 steps for the INGESTED article, 2 for the one stuck after translation
+    assert await drain(session_factory, llm, settings) == 5
+    with session_factory() as s:
+        assert s.get(Article, first).state == ArticleState.PENDING_REVIEW
+        assert s.get(Article, second).state == ArticleState.PENDING_REVIEW
+
+
+async def test_drain_on_an_idle_queue_does_nothing(session_factory, dummy_platforms, settings):
+    llm = FakeGemini()
+    assert await drain(session_factory, llm, settings) == 0
+    assert llm.calls == []
+
+
+async def test_drain_stops_on_quota_and_leaves_the_article_workable(
+        session_factory, dummy_platforms, settings):
+    with session_factory() as s:
+        aid = _ingest(s).id
+    llm = FakeGemini(error=GeminiQuotaError("quota"))
+    assert await drain(session_factory, llm, settings) == 0
+    with session_factory() as s:
+        assert s.get(Article, aid).state == ArticleState.INGESTED
+    assert len(llm.calls) == 1  # gave up instead of hammering the quota
+
+
+async def test_drain_honours_its_step_limit(session_factory, dummy_platforms, settings):
+    with session_factory() as s:
+        aid = _ingest(s).id
+    llm = FakeGemini(responses=[{"detected_language": "uk", "translated_text": "tr"}])
+    assert await drain(session_factory, llm, settings, limit=1) == 1
+    with session_factory() as s:
+        assert s.get(Article, aid).state == ArticleState.TRANSLATED

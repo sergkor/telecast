@@ -1,7 +1,8 @@
 import asyncio
 
 from loguru import logger
-from sqlmodel import select
+from sqlalchemy import func
+from sqlmodel import Session, select
 
 from telecast.config import Settings
 from telecast.models import Article, ArticleState, PublishTarget
@@ -82,6 +83,34 @@ async def advance_one(session_factory, llm, settings: Settings) -> bool:
                 session.add(PublishTarget(article_id=article.id, platform=platform))
         complete(session, article, ArticleState.PENDING_REVIEW)
         return True
+
+
+def count_workable(session: Session) -> int:
+    """How many articles the pipeline still has work to do on."""
+    return session.exec(
+        select(func.count()).select_from(Article).where(Article.state.in_(_WORKABLE))
+    ).one()
+
+
+async def drain(session_factory, llm, settings: Settings, limit: int = 500) -> int:
+    """Advance every workable article as far as it goes, and report how many
+    steps that took — the manual counterpart to `pipeline_loop`, for when the
+    loop is parked on a quota pause or died with the queue non-empty.
+
+    Gives up on the first quota error rather than burning the rest of the
+    backlog against an exhausted key; `limit` caps a single run so a bug that
+    keeps an article workable cannot spin forever."""
+    steps = 0
+    for _ in range(limit):
+        try:
+            worked = await advance_one(session_factory, llm, settings)
+        except GeminiQuotaError:
+            logger.warning("Gemini quota exhausted; stopping drain")
+            break
+        if not worked:
+            break
+        steps += 1
+    return steps
 
 
 async def pipeline_loop(session_factory, llm, settings: Settings, stop_event: asyncio.Event,

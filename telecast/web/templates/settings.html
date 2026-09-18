@@ -16,6 +16,17 @@
     <button class="primary">Recalculate state</button>
   </form>
   {% if recalculated %}<p>{{ recalculated }}</p>{% endif %}</div>
+<div class="card"><h3>Pipeline</h3>
+  <p>{{ stuck_count }} article(s) waiting to be translated, enhanced or opened
+     for review.</p>
+  <form method="post" action="/settings/process-stuck">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <button{% if not stuck_count %} disabled{% endif %}>Process stuck articles</button>
+  </form>
+  <p>Runs the pipeline over the backlog in the background. Use it when
+     articles sit in an unfinished state — the pipeline pauses for an hour
+     after a Gemini quota error.</p>
+  {% if processing %}<p>{{ processing }}</p>{% endif %}</div>
 <div class="card"><h3>Publish schedule</h3>
   <p>Approved articles publish one at a time: the first {{ publish_delay_minutes }}
      minute(s) from now, each one after it {{ publish_interval_hours }} hour(s)

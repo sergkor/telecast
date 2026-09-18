@@ -49,6 +49,17 @@ Republished targets go back through the normal publish schedule, so a large
 batch won't blow the YouTube daily upload quota all at once — but note the
 default quota only allows ~6 uploads/day.
 
+## Stuck articles
+
+Ingested articles are translated, enhanced and opened for review by a
+background loop. That loop pauses for an hour after a Gemini quota error, so a
+backlog can build up in `INGESTED` / `TRANSLATED` / `ENHANCED`.
+
+**Settings → Pipeline** shows how many articles are waiting and offers
+**Process stuck articles**, which drains that backlog in the background and
+returns to the settings page immediately. It stops on the first quota error
+rather than burning the rest of the backlog against an exhausted key.
+
 ## Publish schedule
 
 Approving a target queues its article rather than publishing immediately:

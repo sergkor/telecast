@@ -213,3 +213,68 @@ def test_reset_schedule_requires_csrf(client):
 
 def test_settings_page_offers_the_reset_button(client):
     assert "/settings/reset-schedule" in client.get("/settings").text
+
+
+# --- process stuck articles -------------------------------------------
+
+def _stuck(session_factory, mid, state=ArticleState.INGESTED, text="original"):
+    with session_factory() as s:
+        a = Article(source_channel="@n", source_message_id=mid, state=state,
+                    original_text=text, translated_text="tr")
+        s.add(a)
+        s.commit()
+        s.refresh(a)
+        return a.id
+
+
+def test_settings_page_shows_how_many_articles_are_stuck(client, session_factory):
+    _stuck(session_factory, 1)
+    _stuck(session_factory, 2, state=ArticleState.TRANSLATED)
+    _stuck(session_factory, 3, state=ArticleState.PENDING_REVIEW)
+    text = client.get("/settings").text
+    assert "/settings/process-stuck" in text
+    assert "2 article(s)" in text
+
+
+def test_process_stuck_advances_the_whole_backlog(client, session_factory):
+    from tests.fakes import FakeGemini
+
+    registry.clear()
+    registry.register(StubPublisher("telegram"))
+    try:
+        aid = _stuck(session_factory, 1)
+        client.app.state.llm = FakeGemini(responses=[
+            {"detected_language": "uk", "translated_text": "tr"},
+            {"title": "T", "article": "enhanced", "hashtags": []},
+        ])
+        r = client.post("/settings/process-stuck",
+                        data={"csrf": client.cookies["telecast_csrf"]},
+                        follow_redirects=True)
+        assert r.status_code == 200
+        assert "1 article(s)" in r.text
+        with session_factory() as s:
+            assert s.get(Article, aid).state == ArticleState.PENDING_REVIEW
+    finally:
+        registry.clear()
+
+
+def test_process_stuck_on_an_idle_queue_reports_nothing_to_do(client):
+    r = client.post("/settings/process-stuck",
+                    data={"csrf": client.cookies["telecast_csrf"]},
+                    follow_redirects=True)
+    assert "0 article(s)" in r.text
+
+
+def test_process_stuck_without_a_configured_llm_says_so(client, session_factory):
+    _stuck(session_factory, 1)
+    r = client.post("/settings/process-stuck",
+                    data={"csrf": client.cookies["telecast_csrf"]},
+                    follow_redirects=True)
+    assert "no Gemini client" in r.text
+    with session_factory() as s:
+        assert s.get(Article, 1).state == ArticleState.INGESTED
+
+
+def test_process_stuck_requires_csrf(client):
+    r = client.post("/settings/process-stuck", data={})
+    assert r.status_code == 403

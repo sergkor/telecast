@@ -1,9 +1,10 @@
 from datetime import timedelta
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
+from telecast.pipeline.runner import count_workable, drain
 from telecast.publish import base as registry
 from telecast.publish.recalc import recompute_all
 from telecast.publish.schedule import reset_schedule
@@ -14,9 +15,15 @@ router = APIRouter(dependencies=[Depends(auth.require_login)])
 action = APIRouter(dependencies=[Depends(auth.require_csrf)])
 
 
+def _back(param: str, message: str) -> RedirectResponse:
+    """Send the browser back to the settings page carrying a one-line result."""
+    return RedirectResponse(f"/settings?{param}={quote(message)}", status_code=303)
+
+
 @router.get("/settings", response_class=HTMLResponse)
 def settings_page(request: Request, recalculated: str | None = None,
-                  checked: str | None = None, rescheduled: str | None = None):
+                  checked: str | None = None, rescheduled: str | None = None,
+                  processing: str | None = None):
     s = request.app.state.settings
     try:
         prompt = s.enhance_prompt_path.read_text(encoding="utf-8")
@@ -35,6 +42,8 @@ def settings_page(request: Request, recalculated: str | None = None,
     }
     checkable = {n for n in registry.names()
                  if hasattr(registry.get(n), "check_connection")}
+    with request.app.state.session_factory() as session:
+        stuck_count = count_workable(session)
     return render(request, "settings.html",
                   source_channels=s.source_channel_list,
                   dest_channel=s.dest_channel, prompt=prompt, health=health,
@@ -42,7 +51,8 @@ def settings_page(request: Request, recalculated: str | None = None,
                   recalculated=recalculated, checked=checked,
                   publish_delay_minutes=s.publish_delay_minutes,
                   publish_interval_hours=s.publish_interval_hours,
-                  rescheduled=rescheduled)
+                  rescheduled=rescheduled, stuck_count=stuck_count,
+                  processing=processing)
 
 
 @action.post("/settings/recalculate")
@@ -74,6 +84,25 @@ def validate_plugin(request: Request, plugin: str):
                    else "no connection check available")
     return RedirectResponse(f"/settings?checked={quote(f'{plugin}: {message}')}",
                             status_code=303)
+
+
+@action.post("/settings/process-stuck")
+async def process_stuck(request: Request, background: BackgroundTasks):
+    """Run the pipeline over its own backlog by hand. `pipeline_loop` normally
+    does this, but it parks for an hour on a Gemini quota error and stops
+    entirely if its task dies — leaving ingested articles sitting. Answers with
+    the redirect straight away and drains in the background, since a backlog of
+    LLM calls takes far longer than a request should."""
+    llm = request.app.state.llm
+    if llm is None:
+        return _back("processing", "pipeline unavailable: no Gemini client")
+    settings = request.app.state.settings
+    session_factory = request.app.state.session_factory
+    with session_factory() as session:
+        stuck = count_workable(session)
+    if stuck:
+        background.add_task(drain, session_factory, llm, settings)
+    return _back("processing", f"{stuck} article(s) queued for processing")
 
 
 @action.post("/settings/reset-schedule")
