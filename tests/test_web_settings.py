@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -8,6 +10,7 @@ from telecast.models import (
     ArticleState,
     PublishTarget,
     TargetStatus,
+    utcnow,
 )
 from telecast.publish import base as registry
 from telecast.web.app import create_app
@@ -161,3 +164,52 @@ def test_settings_page_offers_validate_only_for_checkable_plugins(client):
         assert "/settings/validate/telegram" not in text
     finally:
         registry.clear()
+
+
+# --- reset schedule ---------------------------------------------------
+
+def _queued_article(session_factory, mid, created_at, scheduled_at=None):
+    with session_factory() as s:
+        a = Article(source_channel="@n", source_message_id=mid,
+                    state=ArticleState.PENDING_REVIEW, created_at=created_at,
+                    approved_at=created_at, scheduled_at=scheduled_at)
+        s.add(a)
+        s.commit()
+        s.refresh(a)
+        s.add(PublishTarget(article_id=a.id, platform="telegram",
+                            status=TargetStatus.APPROVED))
+        s.commit()
+        return a.id
+
+
+def test_reset_schedule_reorders_the_queue_by_creation_date(client, session_factory):
+    registry.clear()
+    registry.register(StubPublisher("telegram"))
+    try:
+        now = utcnow()
+        old = _queued_article(session_factory, 1, now - timedelta(days=3),
+                              scheduled_at=now + timedelta(days=9))
+        new = _queued_article(session_factory, 2, now - timedelta(hours=1),
+                              scheduled_at=now + timedelta(minutes=5))
+        r = client.post("/settings/reset-schedule",
+                        data={"csrf": client.cookies["telecast_csrf"]},
+                        follow_redirects=True)
+        assert r.status_code == 200
+        assert "2 article(s)" in r.text
+        with session_factory() as s:
+            first = s.get(Article, old).scheduled_at
+            second = s.get(Article, new).scheduled_at
+        # oldest article first, then one interval (default 6h) behind it
+        assert first < second
+        assert second - first == timedelta(hours=6)
+    finally:
+        registry.clear()
+
+
+def test_reset_schedule_requires_csrf(client):
+    r = client.post("/settings/reset-schedule", data={})
+    assert r.status_code == 403
+
+
+def test_settings_page_offers_the_reset_button(client):
+    assert "/settings/reset-schedule" in client.get("/settings").text

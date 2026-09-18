@@ -1,3 +1,4 @@
+from datetime import timedelta
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Request
@@ -5,6 +6,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 from telecast.publish import base as registry
 from telecast.publish.recalc import recompute_all
+from telecast.publish.schedule import reset_schedule
 from telecast.web import auth
 from telecast.web.app import render
 
@@ -14,7 +16,7 @@ action = APIRouter(dependencies=[Depends(auth.require_csrf)])
 
 @router.get("/settings", response_class=HTMLResponse)
 def settings_page(request: Request, recalculated: str | None = None,
-                  checked: str | None = None):
+                  checked: str | None = None, rescheduled: str | None = None):
     s = request.app.state.settings
     try:
         prompt = s.enhance_prompt_path.read_text(encoding="utf-8")
@@ -37,7 +39,10 @@ def settings_page(request: Request, recalculated: str | None = None,
                   source_channels=s.source_channel_list,
                   dest_channel=s.dest_channel, prompt=prompt, health=health,
                   plugins=plugins, checkable=checkable,
-                  recalculated=recalculated, checked=checked)
+                  recalculated=recalculated, checked=checked,
+                  publish_delay_minutes=s.publish_delay_minutes,
+                  publish_interval_hours=s.publish_interval_hours,
+                  rescheduled=rescheduled)
 
 
 @action.post("/settings/recalculate")
@@ -69,6 +74,24 @@ def validate_plugin(request: Request, plugin: str):
                    else "no connection check available")
     return RedirectResponse(f"/settings?checked={quote(f'{plugin}: {message}')}",
                             status_code=303)
+
+
+@action.post("/settings/reset-schedule")
+def reset_publish_schedule(request: Request):
+    """Lay the publish queue out again from scratch, oldest article first —
+    for when approvals came in an order that no longer reflects how the
+    articles should go out."""
+    settings = request.app.state.settings
+    with request.app.state.session_factory() as session:
+        moved = reset_schedule(
+            session,
+            delay=timedelta(minutes=settings.publish_delay_minutes),
+            interval=timedelta(hours=settings.publish_interval_hours),
+            unconfigured=registry.unconfigured(settings),
+        )
+    return RedirectResponse(
+        f"/settings?rescheduled={quote(f'{moved} article(s) rescheduled')}",
+        status_code=303)
 
 
 router.include_router(action)

@@ -20,9 +20,9 @@ def _as_utc(dt: datetime) -> datetime:
     return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
 
 
-def _queued(session, unconfigured: set[str]) -> list[Article]:
+def _queued(session, unconfigured: set[str], order=None) -> list[Article]:
     """Articles with an approved target that some configured plugin can
-    actually publish, oldest approval first."""
+    actually publish, oldest approval first unless `order` says otherwise."""
     stmt = (
         select(PublishTarget.article_id)
         .where(PublishTarget.status == TargetStatus.APPROVED)
@@ -36,8 +36,18 @@ def _queued(session, unconfigured: set[str]) -> list[Article]:
     return session.exec(
         select(Article)
         .where(Article.id.in_(ids))
-        .order_by(Article.approved_at, Article.id)
+        .order_by(*(order or (Article.approved_at,)), Article.id)
     ).all()
+
+
+def _in_flight(session) -> set[int]:
+    """Articles the publish worker has already claimed. Their slot has served
+    its purpose; rewriting it would only misreport what is happening."""
+    return set(session.exec(
+        select(PublishTarget.article_id)
+        .where(PublishTarget.status == TargetStatus.PUBLISHING)
+        .distinct()
+    ).all())
 
 
 def schedule_pending(session, now: datetime | None = None,
@@ -67,3 +77,29 @@ def schedule_pending(session, now: datetime | None = None,
     if scheduled:
         session.commit()
     return scheduled
+
+
+def reset_schedule(session, now: datetime | None = None,
+                   delay: timedelta = DEFAULT_DELAY,
+                   interval: timedelta = DEFAULT_INTERVAL,
+                   unconfigured: set[str] = frozenset()) -> int:
+    """Throw the queue away and lay it out again from scratch: every queued
+    article re-slotted in creation order, the first at `now + delay` and each
+    one after it `interval` behind its predecessor. Returns how many moved.
+
+    This is the one operation allowed to rewrite a slot the review UI has
+    already shown — the escape hatch for a queue whose order no longer makes
+    sense. Articles already being published keep their slot and do not anchor
+    the tail.
+    """
+    now = now or utcnow()
+    flying = _in_flight(session)
+    queued = [a for a in _queued(session, unconfigured, order=(Article.created_at,))
+              if a.id not in flying]
+
+    for position, article in enumerate(queued):
+        article.scheduled_at = now + delay + position * interval
+        article.updated_at = now
+    if queued:
+        session.commit()
+    return len(queued)

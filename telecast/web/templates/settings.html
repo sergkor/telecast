@@ -16,6 +16,19 @@
     <button class="primary">Recalculate state</button>
   </form>
   {% if recalculated %}<p>{{ recalculated }}</p>{% endif %}</div>
+<div class="card"><h3>Publish schedule</h3>
+  <p>Approved articles publish one at a time: the first {{ publish_delay_minutes }}
+     minute(s) from now, each one after it {{ publish_interval_hours }} hour(s)
+     behind its predecessor. Slots are handed out at the tail as articles are
+     approved, so the queue follows approval order.</p>
+  <form method="post" action="/settings/reset-schedule"
+        onsubmit="return confirm('Rebuild the whole publish queue in creation order? Every scheduled time shown in review will change.')">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <button>Reset schedule</button>
+  </form>
+  <p>Rebuilds the queue from scratch, ordering queued articles by creation
+     date. Articles already publishing keep their slot.</p>
+  {% if rescheduled %}<p>{{ rescheduled }}</p>{% endif %}</div>
 <div class="card"><h3>Credential health</h3>
   <table>{% for k, v in health.items() %}<tr><td>{{ k }}</td><td>{{ v }}</td></tr>{% endfor %}</table></div>
 <div class="card"><h3>Enhancement prompt</h3><pre style="white-space:pre-wrap">{{ prompt }}</pre></div>

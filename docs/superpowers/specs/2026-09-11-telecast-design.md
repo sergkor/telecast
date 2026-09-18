@@ -196,6 +196,27 @@ An article with an approved target on an unconfigured plugin is not
 queued and does not anchor the tail. `publish_now` clears `scheduled_at`,
 which the worker reads as "due".
 
+#### Resetting the schedule (added 2026-09-18)
+
+Append-only ordering follows approvals, which is not always the order the
+articles should go out in — a backlog approved in whatever sequence the
+review happened leaves the queue scrambled. **Settings → Publish schedule
+→ Reset schedule** (`POST /settings/reset-schedule` →
+`publish/schedule.py:reset_schedule`) is the escape hatch: it discards
+every queued article's slot and lays the queue out again from scratch,
+ordered by `created_at`, the first at `now + publish_delay_minutes` and
+each one after it `publish_interval_hours` behind its predecessor.
+
+It is the one operation allowed to move a slot the review UI already
+showed, so it is a separate function rather than a flag on
+`schedule_pending` — the append-only invariant stays readable in the code
+that maintains it. The button confirms before posting.
+
+The queued set is the same one `schedule_pending` uses (an `APPROVED`
+target on a configured plugin), minus articles with a `PUBLISHING`
+target: the worker has already claimed those, so they keep their slot and
+do not anchor the tail.
+
 ### Publisher dependencies — WordPress follows YouTube (added 2026-09-16)
 
 A publisher may declare `depends_on = "<platform>"`, meaning it needs
