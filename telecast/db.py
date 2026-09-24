@@ -20,19 +20,30 @@ def make_engine(db_path: Path | str):
 
 
 # columns added after the initial release; create_all won't alter existing tables
-_ARTICLE_MIGRATIONS = {
-    "approved_at": "TIMESTAMP",
-    "scheduled_at": "TIMESTAMP",
+_MIGRATIONS = {
+    "article": {
+        "approved_at": "TIMESTAMP",
+        "scheduled_at": "TIMESTAMP",
+    },
+    "mediafile": {
+        "checksum": "VARCHAR",
+    },
+}
+_INDEXES = {
+    "ix_mediafile_checksum": "mediafile (checksum)",
 }
 
 
 def init_db(engine) -> None:
     SQLModel.metadata.create_all(engine)
     with engine.connect() as conn:
-        cols = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(article)")}
-        for name, sql_type in _ARTICLE_MIGRATIONS.items():
-            if name not in cols:
-                conn.exec_driver_sql(f"ALTER TABLE article ADD COLUMN {name} {sql_type}")
+        for table, columns in _MIGRATIONS.items():
+            cols = {row[1] for row in conn.exec_driver_sql(f"PRAGMA table_info({table})")}
+            for name, sql_type in columns.items():
+                if name not in cols:
+                    conn.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN {name} {sql_type}")
+        for index, target in _INDEXES.items():
+            conn.exec_driver_sql(f"CREATE INDEX IF NOT EXISTS {index} ON {target}")
         conn.commit()
 
 

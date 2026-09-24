@@ -73,6 +73,8 @@ class MediaFile(SQLModel, table=True):
     height: int = 0
     size_bytes: int = 0
     tg_file_unique_id: str = ""
+    # sha256 of the file contents; identical videos reposted anywhere dedupe on it
+    checksum: str | None = Field(default=None, index=True)
 
 
 class PublishTarget(SQLModel, table=True):

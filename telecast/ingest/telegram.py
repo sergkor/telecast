@@ -5,7 +5,8 @@ from sqlmodel import select
 from telethon import TelegramClient, events, utils
 
 from telecast.config import Settings
-from telecast.ingest.core import IncomingPost, IncomingVideo, get_cursor, ingest_post, set_cursor
+from telecast.ingest.core import (IncomingPost, IncomingVideo, file_checksum, get_cursor,
+                                  ingest_post, set_cursor)
 from telecast.ingest.thumbs import make_thumbnail
 from telecast.models import Article
 
@@ -145,6 +146,7 @@ class Ingestor:
             dest = self.settings.media_dir / f"{channel.lstrip('@')}_{m.id}.mp4"
             await self.client.download_media(m, file=str(dest))
             thumb = await asyncio.to_thread(make_thumbnail, dest, self.settings.media_dir)
+            checksum = await asyncio.to_thread(file_checksum, dest)
             videos.append(IncomingVideo(
                 file_path=str(dest),
                 mime_type=(m.file.mime_type if m.file else None) or "video/mp4",
@@ -154,6 +156,7 @@ class Ingestor:
                 size_bytes=(m.file.size if m.file else 0) or dest.stat().st_size,
                 tg_file_unique_id=str(m.file.id) if m.file else "",
                 thumb_path=str(thumb) if thumb else None,
+                checksum=checksum,
             ))
         if channel.startswith("@"):
             url = f"https://t.me/{channel[1:]}/{first.id}"

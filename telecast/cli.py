@@ -9,6 +9,34 @@ def cmd_serve(_args):
     uvicorn.run(get_app(), host="0.0.0.0", port=8000)
 
 
+def cmd_backfill_checksums(_args):
+    from sqlalchemy import func
+    from sqlmodel import select
+
+    from telecast.config import Settings
+    from telecast.db import init_db, make_engine, make_session_factory
+    from telecast.ingest.core import backfill_checksums
+    from telecast.models import MediaFile
+
+    settings = Settings()
+    engine = make_engine(settings.db_path)
+    init_db(engine)
+    with make_session_factory(engine)() as session:
+        filled = backfill_checksums(session)
+        missing = session.exec(
+            select(func.count()).select_from(MediaFile).where(MediaFile.checksum.is_(None))
+        ).one()
+        groups = session.exec(
+            select(func.group_concat(MediaFile.article_id))
+            .where(MediaFile.checksum.is_not(None))
+            .group_by(MediaFile.checksum)
+            .having(func.count(func.distinct(MediaFile.article_id)) > 1)
+        ).all()
+    print(f"Filled {filled} checksums; {missing} media rows have no file on disk.")
+    for ids in groups:
+        print(f"Same media in articles: {ids}")
+
+
 def cmd_auth_telegram(_args):
     import asyncio
 
@@ -186,6 +214,10 @@ def main():
     parser = argparse.ArgumentParser(prog="telecast")
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("serve").set_defaults(fn=cmd_serve)
+    sub.add_parser(
+        "backfill-checksums",
+        help="compute missing media checksums used for duplicate detection",
+    ).set_defaults(fn=cmd_backfill_checksums)
     auth = sub.add_parser("auth")
     auth_sub = auth.add_subparsers(dest="service", required=True)
     auth_sub.add_parser("telegram").set_defaults(fn=cmd_auth_telegram)

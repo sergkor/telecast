@@ -60,6 +60,26 @@ backlog can build up in `INGESTED` / `TRANSLATED` / `ENHANCED`.
 returns to the settings page immediately. It stops on the first quota error
 rather than burning the rest of the backlog against an exhausted key.
 
+## Duplicate videos
+
+Every downloaded video is fingerprinted with a SHA-256 checksum. A post whose
+videos are all already stored — from any channel, under an article in any
+state (discarded included) — is skipped entirely: no article is created and
+the redundant download is deleted. An album with at least one new video is
+ingested as usual.
+
+Media ingested before this check existed is fingerprinted automatically on
+startup, before the ingestor begins. To do it by hand (e.g. after restoring
+`data/media/`):
+
+    telecast backfill-checksums
+    # or, in Docker:
+    docker compose exec telecast telecast backfill-checksums
+
+It is safe to re-run: only rows without a checksum whose file still exists
+are filled. It also lists any existing articles that share the same media;
+those are left alone — discard them in the review UI if needed.
+
 ## Publish schedule
 
 Approving a target queues its article rather than publishing immediately:

@@ -106,6 +106,21 @@ reaches `PENDING_REVIEW`)
 - `adapted_text` (filled at publish time), `external_url` (result link),
   `error`, `published_at`
 
+### Content dedupe by checksum (added 2026-09-23)
+
+`MediaFile.checksum` holds the sha256 of the downloaded file, computed by
+the ingestor right after download. `ingest/core.py:ingest_post` skips a
+post whose videos are *all* already stored under some article — any
+channel, any state, `DISCARDED` included — so the same clip reposted
+elsewhere never becomes a second article. The skip advances the channel
+cursor and deletes the redundant download and its thumbnail (never a path
+an existing `MediaFile` still references). An album with at least one
+unseen video is new content and is ingested whole.
+
+Rows ingested before dedupe existed are backfilled at startup
+(`backfill_checksums`) before the ingestor starts; rows whose file is
+missing stay `NULL` and never match.
+
 ### Article state machine
 
 ```

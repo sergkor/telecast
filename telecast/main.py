@@ -5,6 +5,7 @@ from loguru import logger
 
 from telecast.config import Settings
 from telecast.db import init_db, make_engine, make_session_factory
+from telecast.ingest.core import backfill_checksums
 from telecast.pipeline.llm import RealGeminiClient
 from telecast.pipeline.runner import pipeline_loop, reaper_loop
 from telecast.publish import base as registry
@@ -23,6 +24,24 @@ def _log_task_exception(task: asyncio.Task) -> None:
     exc = task.exception()
     if exc is not None:
         logger.opt(exception=exc).error(f"background task failed: {task.get_name()}")
+
+
+def _backfill_checksums(session_factory) -> None:
+    with session_factory() as session:
+        count = backfill_checksums(session)
+    if count:
+        logger.info(f"backfilled checksums for {count} media files")
+
+
+async def _ingest(settings, session_factory, stop_event) -> None:
+    # dedupe relies on every stored file having a checksum, so fill the
+    # pre-dedupe rows before the first new post can be compared against them
+    try:
+        await asyncio.to_thread(_backfill_checksums, session_factory)
+    except Exception:
+        logger.exception("checksum backfill failed; ingesting without it")
+    from telecast.ingest.telegram import Ingestor
+    await Ingestor(settings, session_factory).start(stop_event)
 
 
 def build():
@@ -49,10 +68,11 @@ def build():
             asyncio.create_task(reaper_loop(session_factory, settings, stop_event)),
         ]
         if settings.telegram_api_id:
-            from telecast.ingest.telegram import Ingestor
-            tasks.append(asyncio.create_task(Ingestor(settings, session_factory).start(stop_event)))
+            tasks.append(asyncio.create_task(_ingest(settings, session_factory, stop_event)))
         else:
             logger.warning("TELECAST_TELEGRAM_API_ID not set — ingestor disabled")
+            tasks.append(asyncio.create_task(
+                asyncio.to_thread(_backfill_checksums, session_factory)))
         for t in tasks:
             t.add_done_callback(_log_task_exception)
         yield
