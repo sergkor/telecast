@@ -104,9 +104,10 @@ def test_new_approval_appends_an_interval_after_the_queue(client, article, sessi
     with session_factory() as s:
         a1 = s.get(Article, article)
         a2 = s.get(Article, a2_id)
-        # the queued article keeps its slot; the new one lands one interval behind
+        # the queued article keeps its slot; the new one lands a random
+        # interval (default 4–12h) behind
         assert a1.scheduled_at == first_slot
-        assert a2.scheduled_at - a1.scheduled_at == timedelta(hours=6)
+        assert timedelta(hours=4) <= a2.scheduled_at - a1.scheduled_at <= timedelta(hours=12)
 
 
 def test_second_target_on_queued_article_keeps_its_slot(client, article, session_factory):
@@ -214,3 +215,62 @@ def test_add_target_rejects_unconfigured_platform(client, article, session_facto
     r = client.post(f"/articles/{article}/add_target",
                     data={"platform": "wordpress", "csrf": _csrf(client)})
     assert r.status_code == 400
+
+
+def _targets(session_factory, article_id):
+    with session_factory() as s:
+        rows = s.exec(select(PublishTarget).where(PublishTarget.article_id == article_id)).all()
+        return {t.platform: t.status for t in rows}
+
+
+def test_approve_all_approves_every_enabled_platform(client, article, session_factory):
+    registry.register(StubPublisher("telegram"))
+    registry.register(StubPublisher("youtube"))
+    with session_factory() as s:
+        s.add(PublishTarget(article_id=article, platform="youtube"))
+        s.commit()
+    client.post(f"/articles/{article}/approve_all", data={"csrf": _csrf(client)})
+    assert _targets(session_factory, article) == {
+        "telegram": TargetStatus.APPROVED, "youtube": TargetStatus.APPROVED}
+    with session_factory() as s:
+        a = s.get(Article, article)
+        assert a.approved_at is not None and a.scheduled_at is not None
+
+
+def test_approve_all_creates_missing_enabled_targets(client, article, session_factory):
+    registry.register(StubPublisher("telegram"))
+    registry.register(StubPublisher("tiktok"))
+    client.post(f"/articles/{article}/approve_all", data={"csrf": _csrf(client)})
+    assert _targets(session_factory, article) == {
+        "telegram": TargetStatus.APPROVED, "tiktok": TargetStatus.APPROVED}
+
+
+def test_approve_all_ignores_unconfigured_and_decided_targets(client, article, session_factory):
+    registry.register(StubPublisher("telegram"))
+    registry.register(StubPublisher("youtube"))
+    registry.register(StubPublisher("tiktok"))
+    registry.register(StubPublisher("wordpress", configured=False))
+    with session_factory() as s:
+        s.add(PublishTarget(article_id=article, platform="youtube", status=TargetStatus.SKIPPED))
+        s.add(PublishTarget(article_id=article, platform="tiktok", status=TargetStatus.FAILED))
+        s.add(PublishTarget(article_id=article, platform="wordpress"))
+        s.commit()
+    client.post(f"/articles/{article}/approve_all", data={"csrf": _csrf(client)})
+    assert _targets(session_factory, article) == {
+        "telegram": TargetStatus.APPROVED, "youtube": TargetStatus.SKIPPED,
+        "tiktok": TargetStatus.FAILED, "wordpress": TargetStatus.PENDING}
+
+
+def test_approve_all_rejects_article_not_in_review(client, article, session_factory):
+    registry.register(StubPublisher("telegram"))
+    _set_state(session_factory, article, ArticleState.ENHANCED)
+    r = client.post(f"/articles/{article}/approve_all", data={"csrf": _csrf(client)})
+    assert r.status_code == 400
+    assert _targets(session_factory, article) == {"telegram": TargetStatus.PENDING}
+
+
+def test_detail_offers_approve_all_only_when_something_to_approve(client, article, session_factory):
+    registry.register(StubPublisher("telegram"))
+    assert "approve_all" in client.get(f"/articles/{article}").text
+    client.post(f"/articles/{article}/approve_all", data={"csrf": _csrf(client)})
+    assert "approve_all" not in client.get(f"/articles/{article}").text

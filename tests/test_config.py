@@ -39,3 +39,18 @@ def test_publish_delay_default_and_override(monkeypatch):
     assert Settings(_env_file=None).publish_delay_minutes == 5
     monkeypatch.setenv("TELECAST_PUBLISH_DELAY_MINUTES", "10")
     assert Settings(_env_file=None).publish_delay_minutes == 10
+
+
+def test_publish_interval_range(monkeypatch):
+    from datetime import timedelta
+
+    import pytest
+    from pydantic import ValidationError
+
+    assert Settings(_env_file=None).publish_interval == (timedelta(hours=4), timedelta(hours=12))
+    monkeypatch.setenv("TELECAST_PUBLISH_INTERVAL_MIN_HOURS", "1.5")
+    monkeypatch.setenv("TELECAST_PUBLISH_INTERVAL_MAX_HOURS", "3")
+    assert Settings(_env_file=None).publish_interval == (timedelta(minutes=90), timedelta(hours=3))
+    monkeypatch.setenv("TELECAST_PUBLISH_INTERVAL_MIN_HOURS", "5")
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None)

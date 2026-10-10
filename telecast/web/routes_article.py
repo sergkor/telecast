@@ -44,12 +44,16 @@ def _detail_ctx(request, session, article):
             warnings[t.platform] = pub.validate(article, list(media), settings)
         except KeyError:
             warnings[t.platform] = [f"no publisher registered for {t.platform}"]
+    available = registry.available(settings)
     missing = []
     if article.state in ADDABLE_STATES:
         have = {t.platform for t in targets}
-        missing = [p for p in registry.available(settings) if p not in have]
+        missing = [p for p in available if p not in have]
+    can_approve_all = article.state == ArticleState.PENDING_REVIEW and bool(
+        missing or any(t.status == TargetStatus.PENDING and t.platform in available
+                       for t in targets))
     return dict(article=article, media=media, targets=targets, warnings=warnings,
-                missing_platforms=missing,
+                missing_platforms=missing, can_approve_all=can_approve_all,
                 publishing=any(t.status == TargetStatus.PUBLISHING for t in targets))
 
 
@@ -176,11 +180,46 @@ def approve(request: Request, target_id: int):
     return RedirectResponse(f"/articles/{aid}", status_code=303)
 
 
+@action.post("/articles/{article_id}/approve_all")
+def approve_all(request: Request, article_id: int):
+    """Approve the article for every enabled platform at once: PENDING
+    targets are approved and enabled platforms without a target get an
+    approved one. SKIPPED/FAILED targets keep the user's earlier decision."""
+    session, article = _load(request, article_id)
+    try:
+        if article.state != ArticleState.PENDING_REVIEW:
+            raise HTTPException(400, f"cannot approve in state {article.state.value}")
+        available = registry.available(request.app.state.settings)
+        targets = session.exec(
+            select(PublishTarget).where(PublishTarget.article_id == article.id)
+        ).all()
+        have = {t.platform for t in targets}
+        changed = False
+        for t in targets:
+            if t.platform in available and t.status == TargetStatus.PENDING:
+                t.status = TargetStatus.APPROVED
+                changed = True
+        for platform in available:
+            if platform not in have:
+                session.add(PublishTarget(article_id=article.id, platform=platform,
+                                          status=TargetStatus.APPROVED))
+                changed = True
+        if changed:
+            if article.approved_at is None:
+                article.approved_at = utcnow()
+            article.updated_at = utcnow()
+            session.commit()
+            _enqueue(request, session)
+    finally:
+        session.close()
+    return RedirectResponse(f"/articles/{article_id}", status_code=303)
+
+
 def _enqueue(request, session) -> None:
     settings = request.app.state.settings
     schedule_pending(session,
                      delay=timedelta(minutes=settings.publish_delay_minutes),
-                     interval=timedelta(hours=settings.publish_interval_hours),
+                     interval=settings.publish_interval,
                      unconfigured=registry.unconfigured(settings))
 
 

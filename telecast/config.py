@@ -1,5 +1,7 @@
+from datetime import timedelta
 from pathlib import Path
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -35,7 +37,20 @@ class Settings(BaseSettings):
     stale_claim_minutes: int = 15
     recent_posts: int = 5
     publish_delay_minutes: int = 5
-    publish_interval_hours: int = 6
+    # gap between consecutive publish slots, drawn at random from [min, max]
+    publish_interval_min_hours: float = 4
+    publish_interval_max_hours: float = 12
+
+    @model_validator(mode="after")
+    def _check_interval(self):
+        if not 0 <= self.publish_interval_min_hours <= self.publish_interval_max_hours:
+            raise ValueError("need 0 <= publish_interval_min_hours <= publish_interval_max_hours")
+        return self
+
+    @property
+    def publish_interval(self) -> tuple[timedelta, timedelta]:
+        return (timedelta(hours=self.publish_interval_min_hours),
+                timedelta(hours=self.publish_interval_max_hours))
 
     @property
     def source_channel_list(self) -> list[str | int]:

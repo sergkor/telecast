@@ -29,7 +29,8 @@
   {% if processing %}<p>{{ processing }}</p>{% endif %}</div>
 <div class="card"><h3>Publish schedule</h3>
   <p>Approved articles publish one at a time: the first {{ publish_delay_minutes }}
-     minute(s) from now, each one after it {{ publish_interval_hours }} hour(s)
+     minute(s) from now, each one after it a random
+     {{ publish_interval_min_hours }}–{{ publish_interval_max_hours }} hour(s)
      behind its predecessor. Slots are handed out at the tail as articles are
      approved, so the queue follows approval order.</p>
   <form method="post" action="/settings/reset-schedule"

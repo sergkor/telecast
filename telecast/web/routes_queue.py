@@ -62,7 +62,7 @@ def republish(request: Request, article_ids: list[int] = Form([]),
                 schedule_pending(
                     session,
                     delay=timedelta(minutes=settings.publish_delay_minutes),
-                    interval=timedelta(hours=settings.publish_interval_hours),
+                    interval=settings.publish_interval,
                     unconfigured=registry.unconfigured(settings),
                 )
     return RedirectResponse("/?tab=published", status_code=303)

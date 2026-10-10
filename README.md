@@ -86,8 +86,10 @@ Approving a target queues its article rather than publishing immediately:
 
 - **Queue empty** → the article publishes `TELECAST_PUBLISH_DELAY_MINUTES`
   from now (default 5), leaving a window to undo a mistaken approval.
-- **Queue not empty** → it publishes `TELECAST_PUBLISH_INTERVAL_HOURS`
-  (default 6) after the last article already in the queue.
+- **Queue not empty** → it publishes a random time between
+  `TELECAST_PUBLISH_INTERVAL_MIN_HOURS` and `TELECAST_PUBLISH_INTERVAL_MAX_HOURS`
+  (default 4–12) after the last article already in the queue. Set both to
+  the same value for a fixed gap.
 
 Slots are append-only: once assigned, an article's time never moves, so
 approving something else — or approving a second platform on the same

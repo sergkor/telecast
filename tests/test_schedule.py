@@ -1,3 +1,4 @@
+import random
 from datetime import datetime, timedelta, timezone
 
 from telecast.models import Article, ArticleState, PublishTarget, TargetStatus
@@ -8,6 +9,8 @@ NOW = datetime(2026, 9, 14, 12, 0, tzinfo=timezone.utc)
 DB_NOW = NOW.replace(tzinfo=None)
 DELAY = timedelta(minutes=5)
 INTERVAL = timedelta(hours=6)
+# min == max: the gap is fixed, so slot arithmetic stays exact
+FIXED = (INTERVAL, INTERVAL)
 # an empty queue publishes after the delay
 DB_FIRST = DB_NOW + DELAY
 
@@ -27,14 +30,14 @@ def _article(session, mid, approved_at=None, target_status=TargetStatus.APPROVED
 
 def test_empty_queue_schedules_after_the_delay(session):
     aid = _article(session, 1, approved_at=NOW)
-    assert schedule_pending(session, now=NOW, delay=DELAY, interval=INTERVAL) == 1
+    assert schedule_pending(session, now=NOW, delay=DELAY, interval=FIXED) == 1
     assert session.get(Article, aid).scheduled_at == DB_FIRST
 
 
 def test_non_empty_queue_schedules_an_interval_after_the_tail(session):
     _article(session, 1, approved_at=NOW - timedelta(hours=1), scheduled_at=NOW + DELAY)
     aid = _article(session, 2, approved_at=NOW)
-    assert schedule_pending(session, now=NOW, delay=DELAY, interval=INTERVAL) == 1
+    assert schedule_pending(session, now=NOW, delay=DELAY, interval=FIXED) == 1
     assert session.get(Article, aid).scheduled_at == DB_FIRST + INTERVAL
 
 
@@ -42,7 +45,7 @@ def test_existing_slots_are_never_moved(session):
     tail = NOW + timedelta(hours=2)
     queued = _article(session, 1, approved_at=NOW - timedelta(hours=1), scheduled_at=tail)
     aid = _article(session, 2, approved_at=NOW)
-    schedule_pending(session, now=NOW, delay=DELAY, interval=INTERVAL)
+    schedule_pending(session, now=NOW, delay=DELAY, interval=FIXED)
     assert session.get(Article, queued).scheduled_at == DB_NOW + timedelta(hours=2)
     assert session.get(Article, aid).scheduled_at == DB_NOW + timedelta(hours=8)
 
@@ -52,7 +55,7 @@ def test_batch_gets_successive_slots_fifo_by_approval(session):
         _article(session, i, approved_at=NOW - timedelta(minutes=30 - i))
         for i in range(3)
     ]
-    assert schedule_pending(session, now=NOW, delay=DELAY, interval=INTERVAL) == 3
+    assert schedule_pending(session, now=NOW, delay=DELAY, interval=FIXED) == 3
     slots = [session.get(Article, aid).scheduled_at for aid in ids]
     assert slots == [DB_FIRST, DB_FIRST + INTERVAL, DB_FIRST + 2 * INTERVAL]
 
@@ -63,13 +66,13 @@ def test_overdue_tail_anchors_to_now(session):
     _article(session, 1, approved_at=NOW - timedelta(hours=12),
              scheduled_at=NOW - timedelta(hours=10))
     aid = _article(session, 2, approved_at=NOW)
-    schedule_pending(session, now=NOW, delay=DELAY, interval=INTERVAL)
+    schedule_pending(session, now=NOW, delay=DELAY, interval=FIXED)
     assert session.get(Article, aid).scheduled_at == DB_FIRST
 
 
 def test_already_scheduled_article_is_left_alone(session):
     aid = _article(session, 1, approved_at=NOW, scheduled_at=NOW + timedelta(hours=3))
-    assert schedule_pending(session, now=NOW, delay=DELAY, interval=INTERVAL) == 0
+    assert schedule_pending(session, now=NOW, delay=DELAY, interval=FIXED) == 0
     assert session.get(Article, aid).scheduled_at == DB_NOW + timedelta(hours=3)
 
 
@@ -77,25 +80,25 @@ def test_delay_and_interval_are_configurable(session):
     a1 = _article(session, 1, approved_at=NOW - timedelta(minutes=1))
     a2 = _article(session, 2, approved_at=NOW)
     schedule_pending(session, now=NOW, delay=timedelta(minutes=30),
-                     interval=timedelta(hours=2))
+                     interval=(timedelta(hours=2), timedelta(hours=2)))
     assert session.get(Article, a1).scheduled_at == DB_NOW + timedelta(minutes=30)
     assert session.get(Article, a2).scheduled_at == DB_NOW + timedelta(hours=2, minutes=30)
 
 
 def test_articles_without_approved_targets_not_scheduled(session):
     aid = _article(session, 1, target_status=TargetStatus.PENDING)
-    assert schedule_pending(session, now=NOW, delay=DELAY, interval=INTERVAL) == 0
+    assert schedule_pending(session, now=NOW, delay=DELAY, interval=FIXED) == 0
     assert session.get(Article, aid).scheduled_at is None
 
 
 def test_published_targets_do_not_queue_article(session):
     aid = _article(session, 1, approved_at=NOW, target_status=TargetStatus.PUBLISHED)
-    schedule_pending(session, now=NOW, delay=DELAY, interval=INTERVAL)
+    schedule_pending(session, now=NOW, delay=DELAY, interval=FIXED)
     assert session.get(Article, aid).scheduled_at is None
 
 
 def test_empty_queue_is_noop(session):
-    assert schedule_pending(session, now=NOW, delay=DELAY, interval=INTERVAL) == 0
+    assert schedule_pending(session, now=NOW, delay=DELAY, interval=FIXED) == 0
 
 
 def test_approved_target_of_unconfigured_plugin_takes_no_slot(session):
@@ -107,7 +110,7 @@ def test_approved_target_of_unconfigured_plugin_takes_no_slot(session):
                        platform="wordpress")
     aid = _article(session, 1, approved_at=NOW)
 
-    assert schedule_pending(session, now=NOW, delay=DELAY, interval=INTERVAL,
+    assert schedule_pending(session, now=NOW, delay=DELAY, interval=FIXED,
                             unconfigured={"wordpress"}) == 1
     assert session.get(Article, pending).scheduled_at is None
     assert session.get(Article, stale).scheduled_at == DB_NOW + timedelta(hours=20)
@@ -126,7 +129,7 @@ def test_reset_orders_by_creation_date_not_approval(session):
     late = _article(session, 1, created_at=OLD, approved_at=NOW)
     early = _article(session, 2, created_at=NOW - timedelta(hours=1),
                      approved_at=NOW - timedelta(hours=2))
-    assert reset_schedule(session, now=NOW, delay=DELAY, interval=INTERVAL) == 2
+    assert reset_schedule(session, now=NOW, delay=DELAY, interval=FIXED) == 2
     assert session.get(Article, late).scheduled_at == DB_FIRST
     assert session.get(Article, early).scheduled_at == DB_FIRST + INTERVAL
 
@@ -134,7 +137,7 @@ def test_reset_orders_by_creation_date_not_approval(session):
 def test_reset_overwrites_existing_slots(session):
     aid = _article(session, 1, created_at=OLD, approved_at=NOW,
                    scheduled_at=NOW + timedelta(days=9))
-    assert reset_schedule(session, now=NOW, delay=DELAY, interval=INTERVAL) == 1
+    assert reset_schedule(session, now=NOW, delay=DELAY, interval=FIXED) == 1
     assert session.get(Article, aid).scheduled_at == DB_FIRST
 
 
@@ -142,7 +145,7 @@ def test_reset_spaces_the_whole_queue_from_the_delay(session):
     ids = [_article(session, i, created_at=OLD + timedelta(hours=i),
                     approved_at=NOW, scheduled_at=NOW + timedelta(days=30 - i))
            for i in range(3)]
-    assert reset_schedule(session, now=NOW, delay=DELAY, interval=INTERVAL) == 3
+    assert reset_schedule(session, now=NOW, delay=DELAY, interval=FIXED) == 3
     slots = [session.get(Article, aid).scheduled_at for aid in ids]
     assert slots == [DB_FIRST, DB_FIRST + INTERVAL, DB_FIRST + 2 * INTERVAL]
 
@@ -158,7 +161,7 @@ def test_reset_leaves_an_in_flight_article_alone(session):
     session.commit()
     aid = _article(session, 2, created_at=OLD + timedelta(hours=1), approved_at=NOW)
 
-    assert reset_schedule(session, now=NOW, delay=DELAY, interval=INTERVAL) == 1
+    assert reset_schedule(session, now=NOW, delay=DELAY, interval=FIXED) == 1
     assert session.get(Article, flying).scheduled_at == DB_NOW - timedelta(minutes=1)
     # …and it does not anchor the tail: the rest still starts at the delay.
     assert session.get(Article, aid).scheduled_at == DB_FIRST
@@ -168,7 +171,7 @@ def test_reset_ignores_unconfigured_plugins(session):
     orphan = _article(session, 1, created_at=OLD, approved_at=NOW,
                       platform="wordpress", scheduled_at=NOW + timedelta(hours=20))
     aid = _article(session, 2, created_at=OLD + timedelta(hours=1), approved_at=NOW)
-    assert reset_schedule(session, now=NOW, delay=DELAY, interval=INTERVAL,
+    assert reset_schedule(session, now=NOW, delay=DELAY, interval=FIXED,
                           unconfigured={"wordpress"}) == 1
     assert session.get(Article, orphan).scheduled_at == DB_NOW + timedelta(hours=20)
     assert session.get(Article, aid).scheduled_at == DB_FIRST
@@ -178,10 +181,52 @@ def test_reset_skips_articles_with_no_approved_target(session):
     pending = _article(session, 1, created_at=OLD, target_status=TargetStatus.PENDING)
     done = _article(session, 2, created_at=OLD, target_status=TargetStatus.PUBLISHED,
                     scheduled_at=NOW + timedelta(hours=4))
-    assert reset_schedule(session, now=NOW, delay=DELAY, interval=INTERVAL) == 0
+    assert reset_schedule(session, now=NOW, delay=DELAY, interval=FIXED) == 0
     assert session.get(Article, pending).scheduled_at is None
     assert session.get(Article, done).scheduled_at == DB_NOW + timedelta(hours=4)
 
 
 def test_reset_on_an_empty_queue_is_a_noop(session):
-    assert reset_schedule(session, now=NOW, delay=DELAY, interval=INTERVAL) == 0
+    assert reset_schedule(session, now=NOW, delay=DELAY, interval=FIXED) == 0
+
+
+RANGE = (timedelta(hours=4), timedelta(hours=12))
+
+
+def test_gap_after_the_tail_is_random_within_the_range(session):
+    tail = NOW + timedelta(hours=2)
+    _article(session, 1, approved_at=NOW - timedelta(hours=1), scheduled_at=tail)
+    aid = _article(session, 2, approved_at=NOW)
+    schedule_pending(session, now=NOW, delay=DELAY, interval=RANGE, rng=random.Random(1))
+    gap = session.get(Article, aid).scheduled_at - tail.replace(tzinfo=None)
+    assert RANGE[0] <= gap <= RANGE[1]
+    assert gap.total_seconds() % 60 == 0  # whole minutes
+
+
+def test_overdue_tail_still_restarts_from_now(session):
+    _article(session, 1, approved_at=NOW - timedelta(hours=30),
+             scheduled_at=NOW - timedelta(hours=20))
+    aid = _article(session, 2, approved_at=NOW)
+    schedule_pending(session, now=NOW, delay=DELAY, interval=RANGE, rng=random.Random(1))
+    assert session.get(Article, aid).scheduled_at == DB_FIRST
+
+
+def test_batch_gets_a_fresh_random_gap_per_article(session):
+    ids = [_article(session, i, approved_at=NOW + timedelta(seconds=i)) for i in range(5)]
+    schedule_pending(session, now=NOW, delay=DELAY, interval=RANGE, rng=random.Random(7))
+    slots = [session.get(Article, aid).scheduled_at for aid in ids]
+    assert slots[0] == DB_FIRST
+    gaps = [b - a for a, b in zip(slots, slots[1:])]
+    assert all(RANGE[0] <= g <= RANGE[1] for g in gaps)
+    assert len(set(gaps)) > 1
+
+
+def test_reset_uses_random_gaps_within_the_range(session):
+    ids = [_article(session, i, created_at=OLD + timedelta(hours=i), approved_at=NOW)
+           for i in range(5)]
+    reset_schedule(session, now=NOW, delay=DELAY, interval=RANGE, rng=random.Random(3))
+    slots = [session.get(Article, aid).scheduled_at for aid in ids]
+    assert slots[0] == DB_FIRST
+    gaps = [b - a for a, b in zip(slots, slots[1:])]
+    assert all(RANGE[0] <= g <= RANGE[1] for g in gaps)
+    assert len(set(gaps)) > 1

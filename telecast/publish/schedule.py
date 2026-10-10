@@ -1,10 +1,14 @@
-"""Publish slots: one article at a time, a fixed interval apart.
+"""Publish slots: one article at a time, a random interval apart.
+
+Each gap is drawn uniformly from `interval = (min, max)` so the channels
+don't post on a visibly mechanical rhythm; `min == max` gives a fixed gap.
 
 The queue only ever grows at the tail — a slot, once assigned, is never
 moved, so what the review UI shows for an article stays true until it
 publishes.
 """
 
+import random
 from datetime import datetime, timedelta, timezone
 
 from sqlmodel import select
@@ -12,12 +16,19 @@ from sqlmodel import select
 from telecast.models import Article, PublishTarget, TargetStatus, utcnow
 
 DEFAULT_DELAY = timedelta(minutes=5)
-DEFAULT_INTERVAL = timedelta(hours=6)
+DEFAULT_INTERVAL = (timedelta(hours=4), timedelta(hours=12))
 
 
 def _as_utc(dt: datetime) -> datetime:
     # SQLite gives datetimes back without an offset; they are always UTC.
     return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
+
+
+def _gap(interval: tuple[timedelta, timedelta], rng: random.Random) -> timedelta:
+    """A random gap within `interval`, in whole minutes so slots read cleanly."""
+    lo, hi = interval
+    minutes = rng.randint(int(lo.total_seconds() // 60), int(hi.total_seconds() // 60))
+    return timedelta(minutes=minutes)
 
 
 def _queued(session, unconfigured: set[str], order=None) -> list[Article]:
@@ -52,13 +63,15 @@ def _in_flight(session) -> set[int]:
 
 def schedule_pending(session, now: datetime | None = None,
                      delay: timedelta = DEFAULT_DELAY,
-                     interval: timedelta = DEFAULT_INTERVAL,
-                     unconfigured: set[str] = frozenset()) -> int:
+                     interval: tuple[timedelta, timedelta] = DEFAULT_INTERVAL,
+                     unconfigured: set[str] = frozenset(),
+                     rng: random.Random | None = None) -> int:
     """Give every queued article that has no slot yet one at the tail of the
-    queue: the first publish waits `delay`, each one after it follows
-    `interval` behind its predecessor. Articles that already hold a slot keep
+    queue: the first publish waits `delay`, each one after it follows a
+    random gap within `interval` behind its predecessor. Articles that already hold a slot keep
     it and define where the tail is. Returns how many were scheduled."""
     now = now or utcnow()
+    rng = rng or random.Random()
     queued = _queued(session, unconfigured)
     slots = [_as_utc(a.scheduled_at) for a in queued if a.scheduled_at is not None]
     tail = max(slots) if slots else None
@@ -70,7 +83,7 @@ def schedule_pending(session, now: datetime | None = None,
         earliest = now + delay
         # An overdue tail restarts spacing from now rather than firing the
         # whole backlog at once.
-        article.scheduled_at = earliest if tail is None else max(earliest, tail + interval)
+        article.scheduled_at = earliest if tail is None else max(earliest, tail + _gap(interval, rng))
         article.updated_at = now
         tail = article.scheduled_at
         scheduled += 1
@@ -81,11 +94,12 @@ def schedule_pending(session, now: datetime | None = None,
 
 def reset_schedule(session, now: datetime | None = None,
                    delay: timedelta = DEFAULT_DELAY,
-                   interval: timedelta = DEFAULT_INTERVAL,
-                   unconfigured: set[str] = frozenset()) -> int:
+                   interval: tuple[timedelta, timedelta] = DEFAULT_INTERVAL,
+                   unconfigured: set[str] = frozenset(),
+                   rng: random.Random | None = None) -> int:
     """Throw the queue away and lay it out again from scratch: every queued
     article re-slotted in creation order, the first at `now + delay` and each
-    one after it `interval` behind its predecessor. Returns how many moved.
+    one after it a random gap within `interval` behind its predecessor. Returns how many moved.
 
     This is the one operation allowed to rewrite a slot the review UI has
     already shown — the escape hatch for a queue whose order no longer makes
@@ -93,12 +107,16 @@ def reset_schedule(session, now: datetime | None = None,
     the tail.
     """
     now = now or utcnow()
+    rng = rng or random.Random()
     flying = _in_flight(session)
     queued = [a for a in _queued(session, unconfigured, order=(Article.created_at,))
               if a.id not in flying]
 
+    slot = now + delay
     for position, article in enumerate(queued):
-        article.scheduled_at = now + delay + position * interval
+        if position:
+            slot += _gap(interval, rng)
+        article.scheduled_at = slot
         article.updated_at = now
     if queued:
         session.commit()

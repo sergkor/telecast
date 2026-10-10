@@ -50,7 +50,8 @@ def settings_page(request: Request, recalculated: str | None = None,
                   plugins=plugins, checkable=checkable,
                   recalculated=recalculated, checked=checked,
                   publish_delay_minutes=s.publish_delay_minutes,
-                  publish_interval_hours=s.publish_interval_hours,
+                  publish_interval_min_hours=s.publish_interval_min_hours,
+                  publish_interval_max_hours=s.publish_interval_max_hours,
                   rescheduled=rescheduled, stuck_count=stuck_count,
                   processing=processing)
 
@@ -115,7 +116,7 @@ def reset_publish_schedule(request: Request):
         moved = reset_schedule(
             session,
             delay=timedelta(minutes=settings.publish_delay_minutes),
-            interval=timedelta(hours=settings.publish_interval_hours),
+            interval=settings.publish_interval,
             unconfigured=registry.unconfigured(settings),
         )
     return RedirectResponse(

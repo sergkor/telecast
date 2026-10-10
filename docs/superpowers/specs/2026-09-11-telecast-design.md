@@ -191,12 +191,15 @@ article that has none, oldest approval first:
 ```
 tail  = latest scheduled_at among queued articles that already have a slot
 slot  = now + publish_delay_minutes                       if tail is None
-        max(now + publish_delay_minutes, tail + publish_interval_hours)  otherwise
+        max(now + publish_delay_minutes, tail + gap)  otherwise
+gap   = uniform random whole minutes in [publish_interval_min_hours, publish_interval_max_hours]
 ```
 
-Spacing is therefore fixed (`TELECAST_PUBLISH_INTERVAL_HOURS`, default 6)
-rather than an even spread across a fixed window, and the queue grows at
-the tail. Properties this buys:
+Spacing is a random gap drawn per slot (revised 2026-10-09:
+`TELECAST_PUBLISH_INTERVAL_MIN_HOURS` / `_MAX_HOURS`, default 4–12,
+replacing the fixed `TELECAST_PUBLISH_INTERVAL_HOURS`) so posts don't go
+out on a mechanical rhythm; `min == max` restores a fixed gap. The queue
+grows at the tail. Properties this buys:
 
 - **Append-only** — an assigned slot is never rewritten, so approving
   another article, or a second platform on the same article, cannot move
@@ -220,7 +223,7 @@ review happened leaves the queue scrambled. **Settings → Publish schedule
 `publish/schedule.py:reset_schedule`) is the escape hatch: it discards
 every queued article's slot and lays the queue out again from scratch,
 ordered by `created_at`, the first at `now + publish_delay_minutes` and
-each one after it `publish_interval_hours` behind its predecessor.
+each one after it a fresh random gap behind its predecessor.
 
 It is the one operation allowed to move a slot the review UI already
 showed, so it is a separate function rather than a flag on
@@ -323,6 +326,13 @@ are POST with CSRF token.
   Re-enhance, per-platform Approve / Skip / Retry, Discard; failed
   stages show the stored error with Retry; htmx polls every 3 s while
   any target is `PUBLISHING`.
+- **Approve article** (added 2026-10-09) — one button on the detail
+  page (`POST /articles/{id}/approve_all`), shown while the article is
+  `PENDING_REVIEW` and has something left to approve. It approves every
+  `PENDING` target on a configured plugin and creates an `APPROVED`
+  target for each configured plugin the article lacks, then schedules
+  like a single approval. `SKIPPED`/`FAILED` targets and unconfigured
+  plugins are left alone.
 - **Settings** (`/settings`) — read-only: configured channels, prompt
   file contents, platform credential health.
 

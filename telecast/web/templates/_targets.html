@@ -9,6 +9,15 @@
     </form>
   </div>
   {% endif %}
+  {% if can_approve_all %}
+  <div class="card">
+    <form method="post" action="/articles/{{ article.id }}/approve_all" style="display:inline">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <button class="primary">Approve article</button>
+    </form>
+    approves every enabled platform not yet decided
+  </div>
+  {% endif %}
   {% for t in targets %}
   <div class="card">
     <strong>{{ t.platform }}</strong>

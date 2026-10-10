@@ -199,9 +199,8 @@ def test_reset_schedule_reorders_the_queue_by_creation_date(client, session_fact
         with session_factory() as s:
             first = s.get(Article, old).scheduled_at
             second = s.get(Article, new).scheduled_at
-        # oldest article first, then one interval (default 6h) behind it
-        assert first < second
-        assert second - first == timedelta(hours=6)
+        # oldest article first, then a random interval (default 4–12h) behind it
+        assert timedelta(hours=4) <= second - first <= timedelta(hours=12)
     finally:
         registry.clear()
 
