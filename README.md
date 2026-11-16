@@ -1,7 +1,7 @@
 # Telecast
 
 Watches Telegram channels for video posts, translates and enhances the text
-with Gemini, and republishes video + enhanced English text to configured
+with Gemini (falling back to Claude when Gemini fails), and republishes video + enhanced English text to configured
 platforms after review in a web app.
 
 Design: `docs/superpowers/specs/2026-09-11-telecast-design.md`
@@ -52,7 +52,8 @@ default quota only allows ~6 uploads/day.
 ## Stuck articles
 
 Ingested articles are translated, enhanced and opened for review by a
-background loop. That loop pauses for an hour after a Gemini quota error, so a
+background loop. That loop pauses for an hour after an LLM quota error (Gemini and, if
+configured, the Claude fallback both exhausted), so a
 backlog can build up in `INGESTED` / `TRANSLATED` / `ENHANCED`.
 
 **Settings → Pipeline** shows how many articles are waiting and offers
@@ -104,6 +105,7 @@ article page has **Publish now** to jump the queue.
    - Telegram API id/hash: https://my.telegram.org
    - Bot token: @BotFather (bot must be admin of the destination channel)
    - Gemini API key: https://aistudio.google.com
+   - Anthropic API key (optional fallback): https://platform.claude.com
    - YouTube: create an OAuth desktop client, save `client_secret.json` in the repo root
 2. `pip install -e ".[dev]"`
 3. One-time auth (writes into `data/`):

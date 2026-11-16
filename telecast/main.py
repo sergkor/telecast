@@ -6,7 +6,7 @@ from loguru import logger
 from telecast.config import Settings
 from telecast.db import init_db, make_engine, make_session_factory
 from telecast.ingest.core import backfill_checksums
-from telecast.pipeline.llm import RealGeminiClient
+from telecast.pipeline.llm import FallbackLLM, RealAnthropicClient, RealGeminiClient
 from telecast.pipeline.runner import pipeline_loop, reaper_loop
 from telecast.publish import base as registry
 from telecast.publish.telegram import TelegramPublisher
@@ -52,6 +52,11 @@ def build():
     init_db(engine)
     session_factory = make_session_factory(engine)
     llm = RealGeminiClient(settings.gemini_api_key)
+    if settings.anthropic_api_key:
+        llm = FallbackLLM(llm, RealAnthropicClient(settings.anthropic_api_key),
+                          fallback_model=settings.anthropic_model)
+    else:
+        logger.info("TELECAST_ANTHROPIC_API_KEY not set — no Claude fallback for Gemini")
     registry.register(TelegramPublisher())
     registry.register(YouTubePublisher(channel_url=settings.telegram_channel_url))
     registry.register(TikTokPublisher())

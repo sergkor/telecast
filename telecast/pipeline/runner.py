@@ -105,7 +105,7 @@ async def drain(session_factory, llm, settings: Settings, limit: int = 500) -> i
         try:
             worked = await advance_one(session_factory, llm, settings)
         except GeminiQuotaError:
-            logger.warning("Gemini quota exhausted; stopping drain")
+            logger.warning("LLM quota exhausted; stopping drain")
             break
         if not worked:
             break
@@ -119,7 +119,7 @@ async def pipeline_loop(session_factory, llm, settings: Settings, stop_event: as
         try:
             worked = await advance_one(session_factory, llm, settings)
         except GeminiQuotaError:
-            logger.warning("Gemini quota exhausted; pausing pipeline for 1h")
+            logger.warning("LLM quota exhausted; pausing pipeline for 1h")
             for _ in range(720):  # 720 * 5s = 1h
                 if stop_event.is_set():
                     return

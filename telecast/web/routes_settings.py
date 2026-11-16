@@ -34,6 +34,7 @@ def settings_page(request: Request, recalculated: str | None = None,
         "YouTube token": "OK" if s.youtube_token_path.exists() else "missing — run `telecast auth youtube`",
         "Bot token": "set" if s.bot_token else "missing",
         "Gemini API key": "set" if s.gemini_api_key else "missing",
+        "Anthropic API key": "set" if s.anthropic_api_key else "not set (no Claude fallback)",
     }
     available = set(registry.available(s))
     plugins = {

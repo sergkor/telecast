@@ -54,3 +54,14 @@ def test_publish_interval_range(monkeypatch):
     monkeypatch.setenv("TELECAST_PUBLISH_INTERVAL_MIN_HOURS", "5")
     with pytest.raises(ValidationError):
         Settings(_env_file=None)
+
+
+def test_anthropic_fallback_defaults_and_override(monkeypatch):
+    s = Settings(_env_file=None)
+    assert s.anthropic_api_key == ""
+    assert s.anthropic_model == "claude-opus-5-5"
+    monkeypatch.setenv("TELECAST_ANTHROPIC_API_KEY", "k")
+    monkeypatch.setenv("TELECAST_ANTHROPIC_MODEL", "claude-sonnet-5-5")
+    s = Settings(_env_file=None)
+    assert s.anthropic_api_key == "k"
+    assert s.anthropic_model == "claude-sonnet-5-5"

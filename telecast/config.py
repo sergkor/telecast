@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     gemini_api_key: str = ""
     translate_model: str = "gemini-flash-latest"
     enhance_model: str = "gemini-flash-latest"
+    # optional Claude fallback, used only when a Gemini call fails
+    anthropic_api_key: str = ""
+    anthropic_model: str = "claude-opus-5-5"
     web_password: str = "change-me"
     secret_key: str = "dev-secret-change-me"
     data_dir: Path = Path("data")
