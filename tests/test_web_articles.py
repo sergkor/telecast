@@ -274,3 +274,67 @@ def test_detail_offers_approve_all_only_when_something_to_approve(client, articl
     assert "approve_all" in client.get(f"/articles/{article}").text
     client.post(f"/articles/{article}/approve_all", data={"csrf": _csrf(client)})
     assert "approve_all" not in client.get(f"/articles/{article}").text
+
+
+def _pending_article(session_factory, msg_id, platforms=("telegram",), **kw):
+    with session_factory() as s:
+        a = Article(source_channel="@n", source_message_id=msg_id,
+                    state=ArticleState.PENDING_REVIEW, title=f"T{msg_id}",
+                    final_text="x", **kw)
+        s.add(a)
+        s.commit()
+        s.refresh(a)
+        for p in platforms:
+            s.add(PublishTarget(article_id=a.id, platform=p))
+        s.commit()
+        return a.id
+
+
+def test_approve_all_opens_oldest_other_pending_article(client, article, session_factory):
+    registry.register(StubPublisher("telegram"))
+    older = _pending_article(session_factory, 2)
+    newer = _pending_article(session_factory, 3)
+    r = client.post(f"/articles/{newer}/approve_all", data={"csrf": _csrf(client)},
+                    follow_redirects=False)
+    assert r.headers["location"] == f"/articles/{article}"
+    r = client.post(f"/articles/{article}/approve_all", data={"csrf": _csrf(client)},
+                    follow_redirects=False)
+    assert r.headers["location"] == f"/articles/{older}"
+
+
+def test_approve_all_skips_pending_articles_with_nothing_to_decide(client, article, session_factory):
+    registry.register(StubPublisher("telegram"))
+    decided = _pending_article(session_factory, 2)
+    with session_factory() as s:
+        t = s.exec(select(PublishTarget).where(PublishTarget.article_id == decided)).one()
+        t.status = TargetStatus.SKIPPED
+        s.commit()
+    undecided = _pending_article(session_factory, 3)
+    r = client.post(f"/articles/{article}/approve_all", data={"csrf": _csrf(client)},
+                    follow_redirects=False)
+    assert r.headers["location"] == f"/articles/{undecided}"
+
+
+def test_approve_all_opens_pending_list_when_nothing_left(client, article, session_factory):
+    registry.register(StubPublisher("telegram"))
+    r = client.post(f"/articles/{article}/approve_all", data={"csrf": _csrf(client)},
+                    follow_redirects=False)
+    assert r.headers["location"] == "/"
+
+
+def test_approve_target_stays_while_other_targets_undecided(client, article, session_factory):
+    registry.register(StubPublisher("telegram"))
+    registry.register(StubPublisher("youtube"))
+    _pending_article(session_factory, 2)
+    with session_factory() as s:
+        s.add(PublishTarget(article_id=article, platform="youtube"))
+        s.commit()
+    r = client.post("/targets/1/approve", data={"csrf": _csrf(client)}, follow_redirects=False)
+    assert r.headers["location"] == f"/articles/{article}"
+
+
+def test_approve_last_target_opens_next_pending_article(client, article, session_factory):
+    registry.register(StubPublisher("telegram"))
+    other = _pending_article(session_factory, 2)
+    r = client.post("/targets/1/approve", data={"csrf": _csrf(client)}, follow_redirects=False)
+    assert r.headers["location"] == f"/articles/{other}"

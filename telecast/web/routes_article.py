@@ -28,6 +28,35 @@ def _load(request, article_id: int):
     return session, article
 
 
+def _needs_decision(article, targets, available) -> bool:
+    """True while a PENDING_REVIEW article still has an enabled platform the
+    user has not decided on: a PENDING target, or no target at all."""
+    if article.state != ArticleState.PENDING_REVIEW:
+        return False
+    have = {t.platform for t in targets}
+    return any(t.status == TargetStatus.PENDING and t.platform in available for t in targets) \
+        or any(p not in have for p in available)
+
+
+def _after_approval_url(request, session, article_id: int) -> str:
+    """Where to go once an article is approved: the oldest other article still
+    waiting for a decision, or the pending list when there is none."""
+    available = registry.available(request.app.state.settings)
+    pending = session.exec(
+        select(Article)
+        .where(Article.state == ArticleState.PENDING_REVIEW)
+        .where(Article.id != article_id)
+        .order_by(Article.id)
+    ).all()
+    for a in pending:
+        targets = session.exec(
+            select(PublishTarget).where(PublishTarget.article_id == a.id)
+        ).all()
+        if _needs_decision(a, targets, available):
+            return f"/articles/{a.id}"
+    return "/"
+
+
 def _detail_ctx(request, session, article):
     settings = request.app.state.settings
     media = session.exec(select(MediaFile).where(MediaFile.article_id == article.id)).all()
@@ -49,9 +78,7 @@ def _detail_ctx(request, session, article):
     if article.state in ADDABLE_STATES:
         have = {t.platform for t in targets}
         missing = [p for p in available if p not in have]
-    can_approve_all = article.state == ArticleState.PENDING_REVIEW and bool(
-        missing or any(t.status == TargetStatus.PENDING and t.platform in available
-                       for t in targets))
+    can_approve_all = _needs_decision(article, targets, available)
     return dict(article=article, media=media, targets=targets, warnings=warnings,
                 missing_platforms=missing, can_approve_all=can_approve_all,
                 publishing=any(t.status == TargetStatus.PUBLISHING for t in targets))
@@ -167,17 +194,26 @@ def _target(request, target_id: int):
 def approve(request: Request, target_id: int):
     session, target = _target(request, target_id)
     try:
+        aid = target.article_id
+        url = f"/articles/{aid}"
         if target.status in (TargetStatus.PENDING, TargetStatus.FAILED):
             target.status = TargetStatus.APPROVED
-            article = session.get(Article, target.article_id)
+            article = session.get(Article, aid)
             if article.approved_at is None:
                 article.approved_at = utcnow()
             session.commit()
             _enqueue(request, session)
-        aid = target.article_id
+            # Stay while other targets still need a decision; move on once
+            # this was the last one.
+            targets = session.exec(
+                select(PublishTarget).where(PublishTarget.article_id == aid)
+            ).all()
+            if not _needs_decision(article, targets,
+                                   registry.available(request.app.state.settings)):
+                url = _after_approval_url(request, session, aid)
     finally:
         session.close()
-    return RedirectResponse(f"/articles/{aid}", status_code=303)
+    return RedirectResponse(url, status_code=303)
 
 
 @action.post("/articles/{article_id}/approve_all")
@@ -204,15 +240,17 @@ def approve_all(request: Request, article_id: int):
                 session.add(PublishTarget(article_id=article.id, platform=platform,
                                           status=TargetStatus.APPROVED))
                 changed = True
+        url = f"/articles/{article_id}"
         if changed:
             if article.approved_at is None:
                 article.approved_at = utcnow()
             article.updated_at = utcnow()
             session.commit()
             _enqueue(request, session)
+            url = _after_approval_url(request, session, article_id)
     finally:
         session.close()
-    return RedirectResponse(f"/articles/{article_id}", status_code=303)
+    return RedirectResponse(url, status_code=303)
 
 
 def _enqueue(request, session) -> None:
